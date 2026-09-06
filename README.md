@@ -1,19 +1,76 @@
 # Bilingual Rime Input Method for macOS
 
-这是一个面向 macOS 的双语 Rime 输入法源码快照。输入拼音后，候选词可以同时显示中文和英文释义；中文输出、英文输出、候选框布局和英文显示均由输入法快捷键及配置控制。
+一个面向 macOS 的双语 Rime 输入法实验项目：输入拼音，候选框同时展示中文候选和对应的英文释义；确认中文或英文由主操作与 `Option` 修饰键明确区分。
 
-## 当前包含
+> 当前仓库是可继续开发的源码快照，项目仍处于实验阶段。它适合希望在 macOS 上研究 Fcitx5、Rime、候选框 UI 和本地翻译体验的开发者。
 
-- `source/fcitx5-macos/`：macOS Fcitx5 前端，以及本次定制使用的 Fcitx5 Core、WebView 源码。
-- `source/fcitx5-rime/`：Rime 插件定制，包括双语候选、英文选择、翻译缓存和 Apple Translation Framework 辅助进程接入。
+## 体验目标
 
-这是一个可离线保存和继续开发的源码快照。上游依赖的许可证和原始版权信息保留在各源码目录中。
+```text
+输入 nihao
+
+┌─────────────────────────────────────────────┐
+│ 1 你好          2 您好          3 你好吗      │
+│   hello           hi              how are you │
+└─────────────────────────────────────────────┘
+```
+
+中文和英文是同一候选项的两行信息，而不是互相挤压的附加文本。横向候选框会根据内容自适应宽度；英文暂时没有结果时保留空白行，避免候选项跳动。
+
+## 主要功能
+
+- 拼音输入，使用 Rime 生成中文候选。
+- 候选项支持“中文主文本 + 英文第二行”。
+- 支持横向和纵向候选框布局。
+- 支持只显示中文、只显示英文或中英双语。
+- 支持 `Space` 选择中文，按住 `Option` 选择同一候选项的英文。
+- 支持 `Option+1` 到 `Option+5` 直接提交对应英文候选。
+- 支持 `Ctrl+Shift+E` 永久切换英文释义显示。
+- 翻译在后台线程执行，并使用缓存，避免阻塞正常输入。
+- 优先复用 Rime 候选注释中的本地词典释义；短语和句子可使用 macOS Translation Framework。
+- 保留可选的在线 HTTP 翻译接口，但默认不联网、不要求账号或 API Key。
+
+## 快捷键
+
+| 操作 | 默认按键 | 作用 |
+| --- | --- | --- |
+| 选择中文 | `Space` | 提交当前高亮候选的中文 |
+| 选择英文 | `Option+Space` | 提交当前高亮候选的英文 |
+| 选择第 1–5 个中文候选 | `1`–`5` | 提交对应中文候选 |
+| 选择第 1–5 个英文候选 | `Option+1`–`Option+5` | 提交对应英文释义 |
+| 切换英文显示 | `Ctrl+Shift+E` | 永久切换英文第二行是否显示 |
+| 移动候选 | 方向键 | 在候选列表中移动高亮项 |
+
+具体按键仍会受到当前 Rime schema 和 macOS 应用快捷键的影响；如果某个应用拦截了 `Option` 或方向键，可以在 Rime/Fcitx5 配置中调整。
+
+## 翻译方案
+
+翻译链路按以下优先级设计：
+
+1. Rime schema 提供的候选注释，例如接入本地 CC-CEDICT 后的词语释义。
+2. macOS Translation Framework，通过随输入法安装的 `Fcitx5TranslationHelper` 处理短语和句子。
+3. 可选在线 HTTP provider，仅当显式设置 `RIME_TRANSLATOR_PROVIDER=online` 时启用。
+
+在线 provider 使用以下环境变量：
+
+```sh
+export RIME_TRANSLATOR_PROVIDER=online
+export RIME_ONLINE_TRANSLATION_URL="https://example.com/translate"
+export RIME_ONLINE_TRANSLATION_TOKEN="your-token"
+```
+
+服务端返回 JSON 时支持 `translation`、`translatedText`，或 `data.translation` 字段。不要把 token 写进源码、配置文件或 Git 提交。
 
 ## 构建
 
-需要 macOS、Xcode Command Line Tools、CMake、Ninja、Swift，以及 Fcitx5/Rime 构建所需的系统依赖。
+### 环境要求
 
-在仓库根目录执行：
+- macOS 13.3 或更新版本
+- Xcode Command Line Tools
+- CMake、Ninja 和 Swift
+- Fcitx5/Rime 构建所需的 cURL、`nlohmann_json`、Rime 开发文件
+
+先阅读 [Fcitx5 macOS 构建说明](source/fcitx5-macos/README.zh-CN.md)，准备好系统依赖后，在仓库根目录执行：
 
 ```sh
 cmake -S source/fcitx5-macos -B build/arm64 -G Ninja \
@@ -24,17 +81,54 @@ cmake -S source/fcitx5-macos -B build/arm64 -G Ninja \
 cmake --build build/arm64
 ```
 
-如果系统尚未提供 Rime、cURL 或 `nlohmann_json` 的开发文件，请先按 Fcitx5 macOS 项目的依赖说明安装它们。
+生成的安装目标由 Fcitx5 macOS 的标准安装流程处理。系统安装输入法需要管理员权限，建议先在独立测试用户或虚拟机中验证。
 
-## 设计要点
+## 项目结构
 
-- 候选项支持中文主文本和英文第二行。
-- `Space` 选择中文；按住 `Option` 时可选择对应英文。
-- `Ctrl+Shift+E` 切换英文释义的永久显示开关。
-- 短词优先使用本地 CC-CEDICT；句子可通过 Apple Translation Framework 辅助进程翻译。
-- 翻译结果使用缓存，离线或无结果时不阻塞中文输入。
+```text
+.
+├── README.md
+├── docs/
+│   └── upstream-sources.md
+└── source/
+    ├── fcitx5-macos/       # macOS 前端、Fcitx5 Core、WebView
+    └── fcitx5-rime/        # Rime 插件与双语翻译逻辑
+```
 
-## 注意事项
+关键定制点：
 
-仓库只包含源码和构建所需的静态资源，不包含本机输入法配置、用户词库、访问令牌、安装后的 `Fcitx5.app`、构建目录或缓存。在线翻译接口如果启用，应通过本机环境变量或独立配置提供凭据，不要把凭据提交到 Git。
+- `source/fcitx5-macos/src/translation-helper.swift`：macOS 本地翻译辅助进程。
+- `source/fcitx5-macos/webpanel/`：候选框配置和候选显示模式。
+- `source/fcitx5-macos/fcitx5-webview/page/`：候选框布局、字体、颜色和双语第二行。
+- `source/fcitx5-rime/src/rimecandidate.cpp`：候选中文与英文释义绑定。
+- `source/fcitx5-rime/src/rimestate.cpp`：中文/英文确认逻辑和快捷键处理。
+- `source/fcitx5-rime/src/translation.cpp`：本地翻译辅助、缓存和可选在线 provider。
+
+## 隐私与数据
+
+- 默认翻译 provider 是 macOS 本地 Translation Framework。
+- 默认不会调用在线翻译服务。
+- 翻译结果只用于当前输入法的候选显示和本地缓存。
+- 本仓库不包含个人 Rime 用户词库、系统输入法配置、访问令牌、安装后的 App、构建目录或依赖缓存。
+
+## 项目状态
+
+当前版本重点验证：
+
+- 中英双行候选框的布局一致性。
+- 中文和英文的独立确认路径。
+- Apple Translation Framework 的后台翻译和缓存。
+- 横向/纵向候选框及中英显示模式配置。
+
+仍需持续完善：
+
+- 更多 Rime schema 和词典的兼容性。
+- 不同 macOS 版本、显示缩放和应用输入框的兼容性。
+- 更完整的自动化测试、打包和签名流程。
+
+## 上游项目与许可证
+
+本项目基于 Fcitx5、Rime 及其 macOS/WebView 组件。构建所需的上游源码以源码快照形式保存在仓库中，原始许可证和版权信息保留在对应目录。详细来源见 [docs/upstream-sources.md](docs/upstream-sources.md)。
+
+请在分发二进制版本前逐项检查上游许可证、系统框架要求和代码签名要求。
 
