@@ -1,0 +1,258 @@
+import type {
+  Locator,
+  Page,
+} from '@playwright/test'
+import { dirname, join } from 'node:path'
+
+export const transparent = 'rgba(0, 0, 0, 0)'
+export const white = 'rgb(255, 255, 255)'
+
+export async function init(page: Page) {
+  const url = `file://${join(dirname(import.meta.url), '..', 'dist', 'index.html').substring('file:'.length)}`
+  await page.goto(url)
+  await page.evaluate(() => {
+    window.cppCalls = []
+    window.fcitx = Object.assign((...args: [string, ...any[]]) => {
+      window.cppCalls.push({ [args[0]]: args.slice(1) })
+    }, window.fcitx)
+    window.fcitx.setTheme(2)
+  })
+}
+
+export async function followHostTheme(page: Page, system: string, version: number) {
+  await page.evaluate(({ system, version }) =>
+    window.fcitx.setHost(system, version), { system, version })
+  return setStyle(page, { Size: { OverrideDefault: 'False' } })
+}
+
+export function updateInputPanel(page: Page, preedit: string, auxUp: string = '', auxDown: string = '') {
+  return page.evaluate(({ preedit, auxUp, auxDown }) =>
+    window.fcitx.updateInputPanel([], true, preedit ? [[preedit, 0]] : [], auxUp ? [[auxUp, 0]] : [], auxDown ? [[auxDown, 0]] : []), { preedit, auxUp, auxDown })
+}
+
+export function setCandidates(page: Page, cands: Partial<Candidate>[], highlighted: number, pageable = false, hasPrev = false) {
+  return page.evaluate(({ cands, highlighted, pageable, hasPrev }) =>
+    window.fcitx.setCandidates(cands.map(cand => ({ text: 'text', label: '1', comment: 'comment', actions: [], spaceBetweenComment: true, ...cand })), highlighted, pageable, hasPrev, false, 0, false, false, []), { cands, highlighted, pageable, hasPrev })
+}
+
+export async function scrollExpand(page: Page, texts: string[]) {
+  const cands = texts.map(text => ({ text, label: '', comment: '', actions: [], spaceBetweenComment: true }))
+  await page.evaluate(({ cands }) =>
+    window.fcitx.setCandidates(cands, 0, false, false, false, 1, false, false, []), { cands })
+  return page.evaluate(({ cands }) =>
+    window.fcitx.setCandidates(cands, -1, false, false, false, 2, true, false, []), { cands })
+}
+
+export function scroll(page: Page, texts: string[], scrollEnd: boolean) {
+  const cands = texts.map(text => ({ text, label: '', comment: '', actions: [], spaceBetweenComment: true }))
+  return page.evaluate(({ cands, scrollEnd }) =>
+    window.fcitx.setCandidates(cands, -1, false, false, false, 2, false, scrollEnd, []), { cands, scrollEnd })
+}
+
+export function setLayout(page: Page, layout: LAYOUT) {
+  return page.evaluate(({ layout }) =>
+    window.fcitx.setLayout(layout), { layout })
+}
+
+export function setWritingMode(page: Page, mode: WRITING_MODE) {
+  return page.evaluate(({ mode }) =>
+    window.fcitx.setWritingMode(mode), { mode })
+}
+
+const defaultStyle: STYLE_JSON = {
+  Advanced: {
+    UserCss: '',
+  },
+  Background: {
+    Blur: 'True',
+    KeepPanelColorWhenHasImage: 'False',
+    ImageUrl: '',
+    Shadow: 'True',
+  },
+  Basic: {
+    DefaultTheme: 'System',
+  },
+  Caret: {
+    Style: 'Blink',
+    Text: '‸',
+  },
+  DarkMode: {
+    BorderColor: '#ffffff',
+    CommentColor: '#ffffff',
+    DisabledPagingButtonColor: '#7f7f7f',
+    DividerColor: '#ffffff',
+    HighlightColor: '#0000ff',
+    HighlightCommentColor: '#ffffff',
+    HighlightHoverColor: '#00007f',
+    HighlightLabelColor: '#ffffff',
+    HighlightMarkColor: '#ffffff',
+    HighlightTextColor: '#ffffff',
+    HighlightTextPressColor: '#7f7f7f',
+    LabelColor: '#ffffff',
+    OverrideDefault: 'False',
+    PagingButtonColor: '#ffffff',
+    PanelColor: '#000000',
+    AuxColor: '#ffffff',
+    PreeditColorPreCaret: '#ffffff',
+    PreeditColorCaret: '#ffffff',
+    PreeditColorPostCaret: '#ffffff',
+    SameWithLightMode: 'False',
+    TextColor: '#ffffff',
+  },
+  Font: {
+    CommentFontFamily: {
+      0: '',
+    },
+    CommentFontSize: '12',
+    CommentFontWeight: '400',
+    LabelFontFamily: {
+      0: '',
+    },
+    LabelFontSize: '12',
+    LabelFontWeight: '400',
+    PreeditFontFamily: {
+      0: '',
+    },
+    PreeditFontSize: '16',
+    PreeditFontWeight: '400',
+    TextFontFamily: {
+      0: '',
+    },
+    TextFontSize: '16',
+    TextFontWeight: '400',
+  },
+  Highlight: {
+    HoverBehavior: 'None',
+    MarkText: '🐧',
+    MarkStyle: 'None',
+  },
+  LightMode: {
+    BorderColor: '#000000',
+    CommentColor: '#000000',
+    DisabledPagingButtonColor: '#7f7f7f',
+    DividerColor: '#000000',
+    HighlightColor: '#0000ff',
+    HighlightCommentColor: '#ffffff',
+    HighlightHoverColor: '#00007f',
+    HighlightLabelColor: '#ffffff',
+    HighlightMarkColor: '#ffffff',
+    HighlightTextColor: '#ffffff',
+    HighlightTextPressColor: '#7f7f7f',
+    LabelColor: '#000000',
+    OverrideDefault: 'False',
+    PagingButtonColor: '#000000',
+    PanelColor: '#ffffff',
+    AuxColor: '#000000',
+    PreeditColorPreCaret: '#000000',
+    PreeditColorCaret: '#000000',
+    PreeditColorPostCaret: '#000000',
+    TextColor: '#000000',
+  },
+  ScrollMode: {
+    Animation: 'True',
+    MaxRowCount: '6',
+    MaxColumnCount: '6',
+    ShowScrollBar: 'True',
+  },
+  Size: {
+    OverrideDefault: 'False',
+    BorderRadius: '6',
+    BorderWidth: '1',
+    BottomPadding: '3',
+    HighlightRadius: '0',
+    HorizontalDividerWidth: '1',
+    LabelTextGap: '6',
+    LeftPadding: '7',
+    Margin: '0',
+    RightPadding: '7',
+    TopPadding: '3',
+    VerticalMinWidth: '200',
+    ScrollCellWidth: '65',
+  },
+  Typography: {
+    CandidateDisplay: 'Chinese and English',
+    VerticalCommentsAlignRight: 'False',
+    PagingButtonsStyle: 'Arrow',
+  },
+}
+
+type DeepPartial<T> = {
+  [P in keyof T]?: T[P] extends object
+    ? DeepPartial<T[P]>
+    : T[P];
+}
+
+function deepMerge<T>(base: T, overrides: DeepPartial<T>): T {
+  const result: any = { ...base }
+  for (const key in overrides) {
+    if (
+      typeof overrides[key] === 'object'
+    ) {
+      result[key] = deepMerge((base as any)[key], overrides[key]!)
+    }
+    else {
+      result[key] = overrides[key]
+    }
+  }
+  return result
+}
+
+export type PartialStyle = DeepPartial<STYLE_JSON>
+
+export function setStyle(page: Page, style: PartialStyle) {
+  return page.evaluate(({ style }) =>
+    window.fcitx.setStyle(JSON.stringify(style)), { style: deepMerge(defaultStyle, style) })
+}
+
+export function theme(page: Page) {
+  return page.locator('#fcitx-theme')
+}
+
+export function panel(page: Page) {
+  return page.locator('.fcitx-panel')
+}
+
+export function hoverables(page: Page) {
+  return page.locator('.fcitx-hoverables')
+}
+
+export function candidate(page: Page, index: number) {
+  return panel(page).locator('.fcitx-candidate').nth(index)
+}
+
+export function mark(page: Page, index: number) {
+  return candidate(page, index).locator('.fcitx-mark')
+}
+
+export async function getBox(locator: Locator) {
+  return (await locator.boundingBox())!
+}
+
+export async function hover(page: Page, index: number) {
+  // I have no idea why 3 steps are needed to trigger visual hover state.
+  await page.hover(`.fcitx-candidate:nth-child(${index * 2 + 1})`)
+  const cand = candidate(page, index)
+  const box = await getBox(cand)
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  return cand.hover()
+}
+
+export async function press(page: Page, index: number) {
+  const cand = candidate(page, index)
+  const box = await getBox(cand)
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  return page.mouse.down()
+}
+
+export async function getTextBox(locator: Locator, index: number) {
+  return locator.evaluate((el, index) => {
+    const range = document.createRange()
+    range.setStart(el.firstChild!, index)
+    range.setEnd(el.firstChild!, index + 1)
+    return range.getBoundingClientRect()
+  }, index)
+}
+
+export function getCppCalls(page: Page) {
+  return page.evaluate(() => window.cppCalls)
+}

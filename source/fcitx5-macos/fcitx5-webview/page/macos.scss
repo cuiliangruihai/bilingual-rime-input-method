@@ -1,0 +1,94 @@
+.fcitx-macos {
+  .fcitx-decoration {
+    /* Leave top and left for shadow. 
+      It's done here instead of fcitx-panel because we want fcitx-panel to
+      align with it by default, so that we can know whether there are images
+      that changes anchor from panel to it. */
+    transform: translate(25px, 25px);
+  }
+
+  .fcitx-panel, .fcitx-contextmenu {
+    border-style: solid;
+    background-clip: padding-box; /* make border alpha and content alpha independent */
+    box-shadow: var(--panel-shadow, 0 10px 20px rgb(0 0 0 / 14%), 0 0 25px rgb(0 0 0 / 12%));
+  }
+
+  .fcitx-horizontal .fcitx-paging.fcitx-arrow {
+    flex-direction: column;
+    justify-content: center;
+
+    .fcitx-paging-inner {
+      inline-size: 28px;
+      block-size: auto;
+    }
+  }
+
+  .fcitx-paging.fcitx-scroll {
+    inline-size: 28px;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .fcitx-contextmenu {
+    border-radius: 6px;
+  }
+
+  .fcitx-caret.fcitx-no-text {
+    inline-size: 1px;
+    block-size: 16px;
+    margin-inline: 1px;
+  }
+
+  .fcitx-menu-item:hover {
+    color: white;
+    background-color: var(--accent-color);
+  }
+
+  .fcitx-vertical .fcitx-divider-middle {
+    inline-size: 100%;
+  }
+
+  .fcitx-hoverables.fcitx-horizontal-scroll .fcitx-divider-middle {
+    block-size: 100%;
+  }
+
+  .fcitx-hoverables.fcitx-horizontal .fcitx-divider {
+    inline-size: 0;
+
+    &.fcitx-divider-paging {
+      inline-size: 1px;
+
+      .fcitx-divider-middle {
+        block-size: 100%;
+      }
+    }
+  }
+
+  .fcitx-hoverables.fcitx-horizontal-scroll > .fcitx-scroll-area::-webkit-scrollbar {
+    width: var(--scrollbar-width, 8px);
+  }
+
+  .fcitx-hoverables.fcitx-horizontal-scroll > .fcitx-scroll-area::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+  }
+
+  .fcitx-horizontal-tb .fcitx-horizontal .fcitx-paging.fcitx-arrow svg {
+    transform: rotate(90deg);
+  }
+
+  .fcitx-vertical-rl .fcitx-horizontal .fcitx-paging.fcitx-arrow svg {
+    transform: rotate(180deg);
+  }
+
+  .fcitx-vertical-lr .fcitx-horizontal .fcitx-paging.fcitx-arrow svg {
+    transform: rotate(0deg);
+  }
+}
+
+.fcitx-macos.fcitx-light .fcitx-contextmenu {
+  color: black;
+}
+
+.fcitx-macos.fcitx-dark .fcitx-contextmenu {
+  color: white;
+}

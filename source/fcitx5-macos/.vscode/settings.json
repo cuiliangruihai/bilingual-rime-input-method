@@ -1,0 +1,14 @@
+{
+    "clangd.arguments": [
+        "-background-index",
+        "-compile-commands-dir=build/arm64"
+    ],
+    "python.testing.pytestArgs": [
+        "appium"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+    "swift.sourcekit-lsp.supported-languages": [
+        "swift"
+    ]
+}

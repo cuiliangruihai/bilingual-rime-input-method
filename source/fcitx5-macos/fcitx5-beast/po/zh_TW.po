@@ -1,0 +1,37 @@
+# Chinese translations for fcitx package.
+# Copyright (C) 2025 THE fcitx'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the fcitx package.
+# Qijia Liu <liumeo@pku.edu.cn>, 2025.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: fcitx 5-beast\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-12-27 11:26-0500\n"
+"PO-Revision-Date: 2025-12-27 12:06-0500\n"
+"Last-Translator: Qijia Liu <liumeo@pku.edu.cn>\n"
+"Language-Team: Chinese (traditional) <zh-l10n@lists.slat.org>\n"
+"Language: zh_TW\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: src/beast.h:30
+msgid "Port"
+msgstr "連接埠"
+
+#: src/beast.h:34
+msgid "Path"
+msgstr "路徑"
+
+#: src/beast.h:46
+msgid "Communication"
+msgstr "通訊"
+
+#: src/beast.conf.in.in:2
+msgid "Web server"
+msgstr "Web 伺服器"
+
+#: src/beast.conf.in.in:3
+msgid "Interact with fcitx5 via HTTP, powered by Boost.Beast"
+msgstr "透過 HTTP 與 fcitx5 互動，由 Boost.Beast 驅動"

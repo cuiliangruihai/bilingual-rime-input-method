@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>org.fcitx.inputmethod.Fcitx5</string>
+  <key>CFBundleName</key>
+  <string>Fcitx5</string>
+  <key>CFBundleDisplayName</key>
+  <string>Fcitx5</string>
+  <key>CFBundleIconFile</key>
+  <string>fcitx.icns</string>
+  <!-- "CFBundleShortVersionString (CFBundleVersion)" is the Version in crash report -->
+  <key>CFBundleShortVersionString</key>
+  <string>@RECENT_TAG@</string>
+  <key>CFBundleVersion</key>
+  <string>@RECENT_COMMITS@</string>
+  <key>NSPrincipalClass</key>
+  <string>Fcitx5.NSManualApplication</string>
+  <key>InputMethodConnectionName</key>
+  <string>org.fcitx.inputmethod.Fcitx5_Connection</string>
+  <key>InputMethodServerControllerClass</key>
+  <string>Fcitx5.FcitxInputController</string>
+  <!-- enable using CapsLock to switch to ABC, since it can't be properly handled by fcitx anyway -->
+  <key>TICapsLockLanguageSwitchCapable</key>
+  <true/>
+  <key>LSBackgroundOnly</key>
+  <true/>
+  <key>tsInputMethodCharacterRepertoireKey</key>
+  <array>
+    <string>Latn</string>
+  </array>
+  <key>tsInputMethodIconFileKey</key>
+  <string>menu_icon.pdf</string>
+  <key>ComponentInputModeDict</key>
+  <dict>
+    <key>tsInputModeListKey</key>
+    <dict>
+      <key>org.fcitx.inputmethod.fcitx5</key>
+      <dict>
+        <!-- register as English to enable on browser password field/Terminal sudo password input -->
+        <key>tsInputModeMenuIconFileKey</key>
+        <string>menu_icon.pdf</string>
+        <key>tsInputModeAlternateMenuIconFileKey</key>
+        <string>menu_icon.pdf</string>
+        <key>tsInputModePaletteIconFileKey</key>
+        <string>menu_icon.pdf</string>
+      </dict>
+      <key>org.fcitx.inputmethod.zhHans</key>
+      <dict>
+        <!-- register as Chinese to disable on browser password field/Terminal sudo password input -->
+        <key>TISIntendedLanguage</key>
+        <string>zh-Hans</string>
+        <key>tsInputModeMenuIconFileKey</key>
+        <string>menu_icon.pdf</string>
+        <key>tsInputModeAlternateMenuIconFileKey</key>
+        <string>menu_icon.pdf</string>
+        <key>tsInputModePaletteIconFileKey</key>
+        <string>menu_icon.pdf</string>
+      </dict>
+      <key>org.fcitx.inputmethod.zhHant</key>
+      <dict>
+        <!-- provide options of Traditional Chinese and so on, so that dictation and MS Word can have correct default language -->
+        <key>TISIntendedLanguage</key>
+        <string>zh-Hant</string>
+        <key>tsInputModeMenuIconFileKey</key>
+        <string>menu_icon.pdf</string>
+        <key>tsInputModeAlternateMenuIconFileKey</key>
+        <string>menu_icon.pdf</string>
+        <key>tsInputModePaletteIconFileKey</key>
+        <string>menu_icon.pdf</string>
+      </dict>
+    </dict>
+  </dict>
+  <key>NSUserNotificationAlertStyle</key>
+  <string>alert</string>
+</dict>
+</plist>

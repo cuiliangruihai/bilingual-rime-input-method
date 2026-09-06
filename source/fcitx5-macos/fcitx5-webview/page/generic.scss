@@ -1,0 +1,341 @@
+#fcitx-theme {
+  user-select: none; /* disable text select */
+  font-family: sans-serif;
+}
+
+.fcitx-hidden {
+  display: none;
+}
+
+.fcitx-panel-topleft {
+  grid-area: topleft;
+}
+
+.fcitx-panel-top {
+  grid-area: top;
+}
+
+.fcitx-panel-topright {
+  grid-area: topright;
+}
+
+.fcitx-panel-left {
+  grid-area: left;
+}
+
+.fcitx-panel-center {
+  grid-area: center;
+}
+
+.fcitx-panel-right {
+  grid-area: right;
+}
+
+.fcitx-panel-bottomleft {
+  grid-area: bottomleft;
+}
+
+.fcitx-panel-bottom {
+  grid-area: bottom;
+}
+
+.fcitx-panel-bottomright {
+  grid-area: bottomright;
+}
+
+.fcitx-decoration {
+  display: inline-grid;
+  grid-template-areas:
+    'topleft top topright'
+    'left center right'
+    'bottomleft bottom bottomright';
+  min-width: max-content; /* On f5j keep width when dragging across screen's right boundary. */
+}
+
+.fcitx-panel {
+  width: fit-content; /* For irregular-shaped window, if top/center/bottom image has a min-width, don't let panel expand to that. */
+  overflow: hidden; /* needed because of border-radius */
+
+  &.fcitx-vertical-rl {
+    writing-mode: vertical-rl;
+  }
+
+  &.fcitx-vertical-lr {
+    writing-mode: vertical-lr;
+  }
+
+  &:is(.fcitx-vertical-rl, .fcitx-vertical-lr) .fcitx-text {
+    /* It seems WebKit doesn't do a great job predicting inline-size of text,
+    so it may wrap text based on underestimated height, but next frame it's
+    corrected, with significant layout shift. Reproducible with Rime F4. */
+    white-space: nowrap;
+  }
+}
+
+.fcitx-tabs {
+  display: none;
+}
+
+.fcitx-panel.fcitx-has-tab-actions .fcitx-tabs {
+  display: flex;
+}
+
+.fcitx-tabs-scrollable {
+  display: flex;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+  overscroll-behavior: none;
+}
+
+.fcitx-tabs-pinned {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.fcitx-tab {
+  display: flex;
+  justify-content: center;
+}
+
+.fcitx-tab-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 30px; /* Prevent single-letter tabs from being too narrow. */
+}
+
+.fcitx-preedit, .fcitx-aux-up {
+  display: inline-flex; /* put the caret on the same line with preedit */
+  align-items: center;
+  line-height: 1em; /* align preedit and text caret */
+
+  &.fcitx-hidden {
+    display: none; /* needed because the above display has higher precedence than .hidden's */
+  }
+}
+
+.fcitx-aux-up {
+  justify-content: center;
+}
+
+.fcitx-aux-down {
+  display: flex;
+  align-items: center;
+
+  &.fcitx-hidden {
+    display: none;
+  }
+}
+
+.fcitx-candidate {
+  position: relative;
+}
+
+.fcitx-candidate-background {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+}
+
+.fcitx-candidate-inner {
+  display: flex;
+  align-items: center; /* English words have lower height */
+  line-height: 1em; /* align label and candidates */
+  position: relative; /* for absolute position of mark */
+  box-sizing: content-box; /* f5j: vitepress sets border-box for * which makes candidate shorter */
+  white-space: pre-wrap; /* Don't collapse spaces and newlines of candidates. */
+}
+
+/* Optional bilingual strip used by the compact Chinese/English theme. */
+.fcitx-bilingual-comment {
+  display: none;
+}
+
+.fcitx-label {
+  /* Label is usually a single number. Will look ugly when all parts have vertical writing mode. */
+  writing-mode: horizontal-tb;
+  inline-size: var(--label-width);
+  text-align: center; /* Since width is determined by fattest label for vertical and scroll mode, thinner ones need centralizing. */
+}
+
+.fcitx-hoverables {
+  display: flex;
+
+  // Background image should not affect aux
+  background-image: var(--background-image);
+  background-size: cover;
+
+  .fcitx-divider {
+    display: flex;
+  }
+
+  &.fcitx-vertical {
+    flex-direction: column;
+
+    .fcitx-scroll-area {
+      flex-direction: column;
+    }
+
+    .fcitx-comment {
+      flex: var(--vertical-comment-flex);
+      text-align: end;
+    }
+
+    .fcitx-divider {
+      &:last-child, &:has(+ .fcitx-divider-paging) {
+        display: none;
+      }
+    }
+  }
+
+  &.fcitx-horizontal {
+    .fcitx-candidate {
+      /* When horizontal and there is multi-line candidate,
+      make sure other candidates are vertical centered.
+      Don't enable it for vertical. It will shrink highlight. */
+      display: flex;
+    }
+
+    /* stylelint-disable-next-line no-descending-specificity */
+    .fcitx-divider {
+      flex-direction: column;
+
+      /* If the last row (either temporary with more candidates to come, or final when scroll ends)
+      is not full, it takes care of the last gap. JS is responsible for full rows. */
+      &:last-child, &:has(+ .fcitx-divider-paging) {
+        flex-grow: 1;
+
+        .fcitx-divider-middle {
+          block-size: 0;
+        }
+
+        .fcitx-divider-side {
+          flex-grow: 1;
+        }
+      }
+    }
+  }
+
+  &.fcitx-horizontal-scroll {
+    display: block; /* Reset from flex so that long tabs (typing a in pinyin) won't cause weird layout issue. */
+
+    .fcitx-scroll-area {
+      flex-wrap: wrap;
+      overflow-y: auto;
+      overscroll-behavior: none;
+    }
+
+    .fcitx-candidate-inner {
+      width: 100%;
+    }
+
+    .fcitx-label {
+      opacity: 0;
+    }
+
+    .fcitx-highlighted-row .fcitx-label {
+      opacity: 1;
+    }
+
+    .fcitx-comment {
+      overflow-wrap: anywhere; /* Disallow long comment to introduce horizontal scrollbar. */
+    }
+  }
+}
+
+.fcitx-scroll-area {
+  flex: 1;
+  display: flex;
+}
+
+:is(.fcitx-vertical-rl, .fcitx-vertical-lr) .fcitx-paging svg {
+  transform: rotate(90deg);
+}
+
+.fcitx-paging {
+  display: flex;
+
+  &.fcitx-arrow svg {
+    block-size: 12px;
+    inline-size: 12px;
+  }
+
+  &.fcitx-triangle svg {
+    block-size: 16px;
+    inline-size: 16px;
+  }
+
+  &.fcitx-scroll {
+    .fcitx-expand {
+      block-size: 18px;
+      inline-size: 18px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+
+      svg {
+        transform: rotate(90deg);
+        width: 16px;
+      }
+    }
+  }
+}
+
+/* When horizontal, paging is shorter than candidates, so need to centralize them. */
+.fcitx-prev, .fcitx-next {
+  display: flex;
+  align-items: center;
+}
+
+// Stacked arrows should not have any margin.
+.fcitx-horizontal .fcitx-arrow {
+  .fcitx-prev, .fcitx-next {
+    margin: 0;
+  }
+}
+
+.fcitx-paging-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+
+.fcitx-mark {
+  opacity: 0;
+
+  &.fcitx-no-text {
+    position: absolute;
+    inset-inline-start: 0;
+    inline-size: 3px;
+    border-radius: 1.5px;
+    block-size: 16px;
+    background-color: white;
+  }
+}
+
+.fcitx-highlighted .fcitx-mark {
+  opacity: var(--mark-opacity, 0);
+}
+
+.fcitx-highlighted :active .fcitx-mark.fcitx-no-text {
+  block-size: 12px;
+}
+
+.fcitx-blur {
+  backdrop-filter: var(--backdrop-filter, blur(16px));
+}
+
+.fcitx-contextmenu {
+  position: absolute;
+  z-index: 1000;
+  display: none;
+  overflow: hidden;
+}
+
+.fcitx-menu-item {
+  display: flex;
+  align-items: center;
+}

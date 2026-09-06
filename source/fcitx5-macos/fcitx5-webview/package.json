@@ -1,0 +1,52 @@
+{
+  "name": "fcitx5-webview",
+  "version": "0.1.0",
+  "description": "Candidate window for desktop, based on webview",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "targets": {
+    "universal": {
+      "source": "page/index.html",
+      "engines": {
+        "browsers": "last 2 versions, Safari 16, not dead"
+      }
+    }
+  },
+  "scripts": {
+    "dev": "parcel --target universal",
+    "lint": "pnpm run eslint && pnpm run stylelint",
+    "lint:fix": "pnpm run eslint:fix && pnpm run stylelint:fix",
+    "eslint": "eslint page tests",
+    "eslint:fix": "eslint --fix page tests",
+    "stylelint": "stylelint page/*.scss",
+    "stylelint:fix": "stylelint --fix page/*.scss",
+    "check": "tsc --noEmit",
+    "clean": "rm -rf dist .parcel-cache",
+    "build": "parcel build page/index.ts",
+    "build:universal": "parcel build --target universal",
+    "test": "pnpm run test:unit && pnpm run test:e2e",
+    "test:unit": "vitest",
+    "test:e2e": "playwright test"
+  },
+  "license": "GPL-3.0-or-later",
+  "devDependencies": {
+    "@antfu/eslint-config": "^9.0.0",
+    "@parcel/packager-ts": "2.16.4",
+    "@parcel/transformer-inline-string": "^2.16.4",
+    "@parcel/transformer-sass": "^2.16.4",
+    "@parcel/transformer-typescript-types": "2.16.4",
+    "@playwright/test": "^1.61.0",
+    "@types/node": "^25.9.3",
+    "eslint": "^10.5.0",
+    "eslint-plugin-format": "^2.0.1",
+    "parcel": "^2.16.4",
+    "stylelint": "^17.13.0",
+    "stylelint-config-standard-scss": "^17.0.0",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.0"
+  },
+  "dependencies": {
+    "emoji-regex": "^10.6.0"
+  }
+}

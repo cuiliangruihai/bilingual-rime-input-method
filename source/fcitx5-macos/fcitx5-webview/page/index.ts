@@ -1,0 +1,122 @@
+/// <reference path="./global.d.ts" />
+// @ts-expect-error parcel bundle-text prefix
+import css from 'bundle-text:./style.scss'
+import { HORIZONTAL, VERTICAL } from './constant'
+import { setStyle } from './customize'
+import { initDistribution } from './distribution'
+import { log } from './log'
+import { hidePanel, setCandidates, updateInputPanel } from './panel'
+import { loadPlugins, pluginManager, unloadPlugins } from './plugin'
+import { initScroll, scrollKeyAction } from './scroll'
+import { hoverables, initSelectors, panel } from './selector'
+import { initTheme, setAccentColor, setTheme } from './theme'
+import { answerActions, initUx, resize } from './ux'
+
+function setLayout(layout: LAYOUT) {
+  hoverables.classList.toggle('fcitx-horizontal', layout === HORIZONTAL)
+  hoverables.classList.toggle('fcitx-vertical', layout === VERTICAL)
+}
+
+function setWritingMode(mode: 0 | 1 | 2) {
+  const classes = ['fcitx-horizontal-tb', 'fcitx-vertical-rl', 'fcitx-vertical-lr']
+  for (let i = 0; i < classes.length; ++i) {
+    panel.classList.toggle(classes[i], mode === i)
+  }
+}
+
+function copyHTML() {
+  const html = document.documentElement.outerHTML
+  window.fcitx('copyHTML', html)
+}
+
+export function initPanel(container: HTMLElement) {
+  initDistribution()
+
+  if (!document.head.querySelector('#fcitx-style')) {
+    const style = document.createElement('style')
+    style.id = 'fcitx-style'
+    style.textContent = css
+    document.head.append(style)
+  }
+
+  if (!document.head.querySelector('#fcitx-user')) {
+    const link = document.createElement('link')
+    link.id = 'fcitx-user'
+    link.rel = 'stylesheet'
+    document.head.append(link)
+  }
+
+  // The last child of fcitx-decoration is the highest.
+  container.insertAdjacentHTML('beforeend', `
+    <div id="fcitx-theme" class="fcitx-blue fcitx-macos fcitx-macos-15 fcitx-macos-26">
+      <div class="fcitx-decoration">
+        <div class="fcitx-panel-topleft"></div>
+        <div class="fcitx-panel-top"></div>
+        <div class="fcitx-panel-topright"></div>
+        <div class="fcitx-panel-left"></div>
+        <div class="fcitx-panel-right"></div>
+        <div class="fcitx-panel-bottomleft"></div>
+        <div class="fcitx-panel-bottom"></div>
+        <div class="fcitx-panel-bottomright"></div>
+        <div class="fcitx-panel-center">
+          <div class="fcitx-panel fcitx-horizontal-tb">
+            <div class="fcitx-panel-blur">
+              <div class="fcitx-header">
+                <div class="fcitx-aux-up fcitx-hidden"></div>
+                <div class="fcitx-preedit fcitx-hidden">
+                  <div class="fcitx-pre-caret"></div>
+                  <div class="fcitx-caret"></div>
+                  <div class="fcitx-post-caret"></div>
+                </div>
+              </div>
+              <div class="fcitx-aux-down fcitx-hidden"></div>
+              <div class="fcitx-hoverables fcitx-horizontal">
+                <div class="fcitx-scroll-area"></div>
+                <div class="fcitx-bilingual-comment" aria-live="polite"></div>
+                <div class="fcitx-tabs">
+                  <div class="fcitx-tabs-scrollable"></div>
+                  <div class="fcitx-tabs-pinned"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="fcitx-contextmenu fcitx-blur"></div>
+    </div>
+  `)
+  initSelectors(container)
+  initTheme()
+  initUx()
+  initScroll()
+
+  // Bind APIs to window.fcitx for C++ calls (macOS & Emscripten)
+  window.fcitx.setCandidates = setCandidates
+  window.fcitx.setLayout = setLayout
+  window.fcitx.updateInputPanel = updateInputPanel
+  window.fcitx.hidePanel = hidePanel
+  window.fcitx.resize = resize
+  window.fcitx.setTheme = setTheme
+  window.fcitx.setAccentColor = setAccentColor
+  window.fcitx.setStyle = setStyle
+  window.fcitx.setWritingMode = setWritingMode
+  window.fcitx.copyHTML = copyHTML
+  window.fcitx.scrollKeyAction = scrollKeyAction
+  window.fcitx.answerActions = answerActions
+  window.fcitx.log = log
+
+  Object.defineProperty(window.fcitx, 'pluginManager', {
+    value: pluginManager,
+  })
+
+  Object.defineProperty(window.fcitx, 'loadPlugins', {
+    value: loadPlugins,
+  })
+
+  Object.defineProperty(window.fcitx, 'unloadPlugins', {
+    value: unloadPlugins,
+  })
+
+  setTheme(0)
+  window.fcitx('onload')
+}

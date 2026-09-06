@@ -1,0 +1,345 @@
+import Logging
+import SwiftUI
+import UniformTypeIdentifiers
+
+private struct DuplicateFile: Identifiable {
+  let id = UUID()
+  let url: URL
+  var fileName: String { url.lastPathComponent }
+}
+
+private func filterSelectedFiles(
+  _ urls: [URL], allowedContentTypes: [UTType], allowedSuffixes: [String]?
+) -> [URL] {
+  if let allowedSuffixes {
+    return urls.filter { url in
+      allowedSuffixes.contains { url.lastPathComponent.hasSuffix($0) }
+    }
+  }
+  return urls.filter { url in
+    guard !url.pathExtension.isEmpty,
+      let extType = UTType(filenameExtension: url.pathExtension)
+    else { return false }
+    return allowedContentTypes.contains { extType.conforms(to: $0) }
+  }
+}
+
+private func importFile(
+  _ file: URL,
+  to directory: URL,
+  onDuplicate: @escaping (DuplicateFile) -> Void,
+  onFinish: @escaping (String) -> Void
+) {
+  mkdirP(directory.localPath())
+  var fileName = file.lastPathComponent
+  if !directory.contains(file) {
+    let dst = directory.appendingPathComponent(fileName)
+    if dst.exists() {
+      onDuplicate(DuplicateFile(url: file))
+      return
+    }
+    if !copyFile(file, dst) {
+      return
+    }
+  } else {
+    // Need to consider subdirectory of target directory.
+    let directoryPath = directory.localPath()
+    fileName = String(
+      file.localPath().dropFirst(
+        directoryPath.hasSuffix("/") ? directoryPath.count : directoryPath.count + 1))
+  }
+  onFinish(fileName)
+}
+
+private func replaceImportedFile(
+  _ file: DuplicateFile,
+  in directory: URL,
+  onFinish: @escaping (String) -> Void
+) {
+  let dst = directory.appendingPathComponent(file.fileName)
+  _ = removeFile(dst)
+  if copyFile(file.url, dst) {
+    onFinish(file.fileName)
+  }
+}
+
+func dropZoneLabel(_ suffix: String) -> Text {
+  Text(String(format: NSLocalizedString("Click or drag %@ file here", comment: ""), suffix))
+}
+
+struct DragDropFileSelector<Content>: View where Content: View {
+  let allowsMultipleSelection: Bool
+  let canChooseDirectories: Bool
+  let canChooseFiles: Bool
+  let allowedContentTypes: [UTType]
+  let directoryURL: URL?
+  let allowedSuffixes: [String]?
+  let onSelect: ([URL]) -> Void
+  let onDirectoryChanged: ((URL?) -> Void)?
+  let content: (_ isTargeted: Bool) -> Content
+
+  @State private var isTargeted = false
+
+  init(
+    allowsMultipleSelection: Bool,
+    canChooseDirectories: Bool = false,
+    canChooseFiles: Bool = true,
+    allowedContentTypes: [UTType],
+    directoryURL: URL? = nil,
+    allowedSuffixes: [String]? = nil,
+    onSelect: @escaping ([URL]) -> Void,
+    onDirectoryChanged: ((URL?) -> Void)? = nil,
+    @ViewBuilder content: @escaping (_ isTargeted: Bool) -> Content
+  ) {
+    self.allowsMultipleSelection = allowsMultipleSelection
+    self.canChooseDirectories = canChooseDirectories
+    self.canChooseFiles = canChooseFiles
+    self.allowedContentTypes = allowedContentTypes
+    self.directoryURL = directoryURL
+    self.allowedSuffixes = allowedSuffixes
+    self.onSelect = onSelect
+    self.onDirectoryChanged = onDirectoryChanged
+    self.content = content
+  }
+
+  private func handleSelection(_ urls: [URL]) {
+    let filtered = filterSelectedFiles(
+      urls, allowedContentTypes: allowedContentTypes, allowedSuffixes: allowedSuffixes)
+    guard !filtered.isEmpty else {
+      return
+    }
+    onSelect(allowsMultipleSelection ? filtered : [filtered[0]])
+  }
+
+  var body: some View {
+    content(isTargeted)
+      .contentShape(Rectangle())
+      .onTapGesture {
+        if let directoryURL {
+          mkdirP(directoryURL.localPath())
+        }
+        let _ = selectFile(
+          allowsMultipleSelection: allowsMultipleSelection,
+          canChooseDirectories: canChooseDirectories,
+          canChooseFiles: canChooseFiles,
+          allowedContentTypes: allowedContentTypes,
+          directoryURL: directoryURL
+        ) { urls, dirURL in
+          onDirectoryChanged?(dirURL)
+          handleSelection(urls)
+        }
+      }
+      .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
+        Task { @MainActor in
+          var urls = [URL]()
+          for provider in providers where provider.canLoadObject(ofClass: URL.self) {
+            let url: URL? = await withCheckedContinuation { continuation in
+              _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                continuation.resume(returning: url)
+              }
+            }
+            if let url {
+              urls.append(url)
+            }
+          }
+          handleSelection(urls)
+        }
+        return true
+      }
+  }
+}
+
+private struct SelectFileSheet<DropContent>: View where DropContent: View {
+  let directory: URL?
+  let initialDirectory: URL?
+  let allowsMultipleSelection: Bool
+  let allowedContentTypes: [UTType]
+  let allowedSuffixes: [String]?
+  let onImport: ((String, [String]) -> Void)?
+  let onSelect: (([URL]) -> Void)?
+  let onDirectoryChanged: ((URL?) -> Void)?
+  @Binding var showPicker: Bool
+  let dropContent: () -> DropContent
+  @State private var duplicateFile: DuplicateFile? = nil
+  @State private var pendingFiles = [URL]()
+  @State private var importedFiles = [String]()
+
+  private func processNext() {
+    guard !pendingFiles.isEmpty else {
+      if let onImport, !importedFiles.isEmpty {
+        onImport(importedFiles.first ?? "", importedFiles)
+      }
+      importedFiles = []
+      showPicker = false
+      return
+    }
+    guard let directory else { return }
+    let file = pendingFiles.removeFirst()
+    importFile(file, to: directory, onDuplicate: { duplicateFile = $0 }) { fileName in
+      importedFiles.append(fileName)
+      processNext()
+    }
+  }
+
+  var body: some View {
+    VStack(spacing: gapSize) {
+      DragDropFileSelector(
+        allowsMultipleSelection: allowsMultipleSelection,
+        allowedContentTypes: allowedContentTypes,
+        directoryURL: initialDirectory ?? directory,
+        allowedSuffixes: allowedSuffixes,
+        onSelect: { urls in
+          if let onSelect {
+            onSelect(urls)
+            showPicker = false
+          } else {
+            pendingFiles = urls
+            processNext()
+          }
+        },
+        onDirectoryChanged: onDirectoryChanged
+      ) { isTargeted in
+        ZStack {
+          RoundedRectangle(cornerRadius: 12)
+            .stroke(style: StrokeStyle(lineWidth: 2, dash: [8]))
+            .foregroundColor(isTargeted ? .accentColor : .secondary.opacity(0.5))
+          VStack(spacing: 8) {
+            Image(systemName: "square.and.arrow.down").font(.system(size: 24))
+            dropContent()
+          }
+        }
+      }
+      .frame(height: 160)
+
+      Button {
+        showPicker = false
+      } label: {
+        Text("Cancel")
+      }
+    }.padding()
+      .alert(item: $duplicateFile) { item in
+        Alert(
+          title: Text("\(item.fileName) already exists. Replace?"),
+          primaryButton: .default(Text("OK")) {
+            if let directory {
+              replaceImportedFile(item, in: directory) { fileName in
+                importedFiles.append(fileName)
+                processNext()
+              }
+            }
+          },
+          secondaryButton: .cancel {
+            processNext()
+          }
+        )
+      }
+  }
+}
+
+struct SelectFileButton<Label, DropContent>: View where Label: View, DropContent: View {
+  let directory: URL?
+  let initialDirectory: URL?
+  let allowsMultipleSelection: Bool
+  let allowedContentTypes: [UTType]
+  let allowedSuffixes: [String]?
+  let hasFile: Bool
+  let label: () -> Label
+  let onImport: ((String, [String]) -> Void)?
+  let onSelect: (([URL]) -> Void)?
+  let onClear: (() -> Void)?
+  let onDirectoryChanged: ((URL?) -> Void)?
+  let accessibilityId: String
+  let dropContent: () -> DropContent
+
+  @State private var showPicker = false
+
+  /// - Parameters:
+  ///   - directory: Target directory for file import. When non-nil, files from the
+  ///     picker/drag-drop are copied here (mkdir -p if needed); `onImport` must be
+  ///     set. When nil, no copy is performed — only `onSelect` mode works.
+  ///   - allowedContentTypes: Filter by UTI (e.g. `[.zip]`). Derived from
+  ///     `allowedSuffixes` when nil.
+  ///   - allowedSuffixes: Filter by file extension (e.g. `[".zip"]`). Used to derive
+  ///     `allowedContentTypes` when the latter is nil.
+  ///   - allowsMultipleSelection: When `true`, accepts multiple files.
+  ///     `onImport` is called once with the full list of imported filenames.
+  ///     `onSelect` receives all URLs in a single callback.
+  ///   - initialDirectory: Starting directory for the file picker. Use with
+  ///     `onDirectoryChanged` to persist the user's last-picked directory.
+  ///   - hasFile: Whether a file is currently selected; shows a clear (x) button
+  ///     when `true` and `onClear` is provided.
+  ///   - label: The button label shown in the UI.
+  ///   - onImport: Import callback — receives the first filename and the full list
+  ///     of imported filenames. Mutually exclusive with `onSelect`.
+  ///   - onSelect: Raw URL callback — receives file URL(s) without copying.
+  ///     Mutually exclusive with `onImport`.
+  ///   - onClear: Called when the user clicks the clear (x) button.
+  ///   - onDirectoryChanged: Called with the directory URL of the last-selected file.
+  ///     Pair with `initialDirectory` to persist the picker directory.
+  ///   - accessibilityId: Accessibility identifier for UI testing.
+  ///   - dropContent: Drag-drop zone content (e.g. `dropZoneLabel(".zip")`). Defines
+  ///     the drop target area.
+  init(
+    directory: URL? = nil,
+    allowedContentTypes: [UTType]? = nil,
+    allowedSuffixes: [String]? = nil,
+    allowsMultipleSelection: Bool = false,
+    initialDirectory: URL? = nil,
+    hasFile: Bool,
+    @ViewBuilder label: @escaping () -> Label,
+    onImport: ((String, [String]) -> Void)? = nil,
+    onSelect: (([URL]) -> Void)? = nil,
+    onClear: (() -> Void)? = nil,
+    onDirectoryChanged: ((URL?) -> Void)? = nil,
+    accessibilityId: String = "",
+    @ViewBuilder dropContent: @escaping () -> DropContent
+  ) {
+    self.directory = directory
+    self.allowedContentTypes = allowedContentTypes ?? (allowedSuffixes.map { fileTypes($0) } ?? [])
+    self.allowsMultipleSelection = allowsMultipleSelection
+    self.initialDirectory = initialDirectory
+    self.allowedSuffixes = allowedSuffixes
+    self.hasFile = hasFile
+    self.label = label
+    self.onImport = onImport
+    self.onSelect = onSelect
+    self.onClear = onClear
+    self.onDirectoryChanged = onDirectoryChanged
+    self.accessibilityId = accessibilityId
+    self.dropContent = dropContent
+  }
+
+  var body: some View {
+    HStack {
+      Button {
+        showPicker = true
+      } label: {
+        label()
+      }
+      .sheet(isPresented: $showPicker) {
+        SelectFileSheet(
+          directory: directory,
+          initialDirectory: initialDirectory,
+          allowsMultipleSelection: allowsMultipleSelection,
+          allowedContentTypes: allowedContentTypes,
+          allowedSuffixes: allowedSuffixes,
+          onImport: onImport,
+          onSelect: onSelect,
+          onDirectoryChanged: onDirectoryChanged,
+          showPicker: $showPicker,
+          dropContent: dropContent
+        )
+      }
+      .accessibilityIdentifier(accessibilityId)
+
+      if hasFile, let onClear {
+        Button {
+          onClear()
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+        }.buttonStyle(BorderlessButtonStyle())
+          .accessibilityIdentifier("ClearSelectedFile")
+      }
+    }
+  }
+}

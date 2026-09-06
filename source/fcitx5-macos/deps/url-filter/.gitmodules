@@ -1,0 +1,3 @@
+[submodule "Rules"]
+	path = Rules
+	url = https://github.com/ClearURLs/Rules

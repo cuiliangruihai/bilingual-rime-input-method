@@ -1,0 +1,9 @@
+[Addon]
+Name=Web server
+Comment=Interact with fcitx5 via HTTP, powered by Boost.Beast
+Category=Module
+Version=@PROJECT_VERSION@
+Library=libbeast
+Type=@FCITX_ADDON_TYPE@
+OnDemand=False
+Configurable=True

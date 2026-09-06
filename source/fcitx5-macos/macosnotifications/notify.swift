@@ -1,0 +1,135 @@
+import CxxNotify
+import Logging
+import UserNotifications
+
+/// The notification center of the current app.
+@MainActor
+let center = UNUserNotificationCenter.current()
+
+public class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+  @MainActor
+  public override init() {
+    super.init()
+    center.delegate = self
+  }
+
+  @MainActor
+  public func requestAuthorization() {
+    center.requestAuthorization(options: [.alert, .sound]) { (granted, error) in
+      if let error = error {
+        FCITX_ERROR("Error requesting notification permissions: \(error.localizedDescription)")
+        return
+      }
+      if granted {
+        FCITX_INFO("Notification permission is granted")
+      }
+    }
+  }
+
+  public func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    let externalIdent = response.notification.request.identifier
+    let actionIdent = response.actionIdentifier
+    if actionIdent == "com.apple.UNNotificationDefaultActionIdentifier" {
+      // This notification is dismissed. No need to close it manually.
+      fcitx.destroyNotificationItem(externalIdent, NOTIFICATION_CLOSED_REASON_DISMISSED.rawValue)
+    } else {
+      // The user has initiated an action.
+      fcitx.handleActionResult(externalIdent, actionIdent)
+    }
+    completionHandler()
+  }
+}
+
+// Note: notification won't show if Fcitx5 is in foreground. It's inside notification center.
+public func sendNotification(
+  _ identifier: String,
+  _ iconPath: String,
+  _ title: String, _ body: String,
+  _ actionStrings: [String],
+  _ timeout: Double
+) {
+  Task { @MainActor in
+    let categoryIdent = "ACTION_CATEGORY_\(identifier)"
+    var actions: [UNNotificationAction] = []
+    for i in stride(from: 0, to: actionStrings.count, by: 2) {
+      let action = UNNotificationAction(
+        identifier: actionStrings[i],
+        title: actionStrings[i + 1],
+        options: .foreground
+      )
+      actions.append(action)
+    }
+
+    let category = UNNotificationCategory(
+      identifier: categoryIdent,
+      actions: actions,
+      intentIdentifiers: [],
+      hiddenPreviewsBodyPlaceholder: "",
+      options: .customDismissAction
+    )
+    center.setNotificationCategories([category])
+
+    let content = UNMutableNotificationContent()
+    if identifier == "tip-disabled" {
+      // Don't show it immediately after user disables a tip, as macOS won't show it unless user clicks notification center.
+      try await Task.sleep(nanoseconds: 2_000_000_000)
+      content.title = String(
+        format: NSLocalizedString("\"%@\" notification is disabled", comment: ""), title)
+      content.body = NSLocalizedString(
+        "You may re-enable it in Advanced → macOS Notification.", comment: "")
+    } else {
+      content.title = title
+      content.body = body
+    }
+    content.categoryIdentifier = categoryIdent
+
+    if iconPath != "" {
+      var iconURL = URL(fileURLWithPath: iconPath)
+      do {
+        // Follow symlink as required by UNNotificationAttachment.
+        let attributes = try FileManager.default.attributesOfItem(atPath: iconPath)
+        if attributes[.type] as? FileAttributeType == .typeSymbolicLink {
+          let destination = try FileManager.default.destinationOfSymbolicLink(atPath: iconPath)
+          iconURL = URL(
+            fileURLWithPath: destination, relativeTo: iconURL.deletingLastPathComponent())
+        }
+        // Must duplicate it as Apple deletes it (moves it to data store), see https://stackoverflow.com/a/51081941.
+        let tmpIconURL = URL(fileURLWithPath: "/tmp/" + iconURL.lastPathComponent)
+        // Use try? to prevent file exists error just in case Apple doesn't delete it in time.
+        try? FileManager.default.copyItem(at: iconURL, to: tmpIconURL)
+        if let attachment = try? UNNotificationAttachment(
+          identifier: "image", url: tmpIconURL, options: nil)
+        {
+          content.attachments = [attachment]
+        }
+      } catch {
+        FCITX_ERROR("Failed to duplicate icon: \(error.localizedDescription)")
+      }
+    }
+
+    let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+
+    do {
+      try await center.add(request)
+    } catch {
+      FCITX_ERROR("Cannot send notification: \(error.localizedDescription)")
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
+      closeNotification(identifier, NOTIFICATION_CLOSED_REASON_EXPIRY.rawValue)
+    }
+  }
+}
+
+public func closeNotification(
+  _ identifier: String,
+  _ reason: UInt32
+) {
+  DispatchQueue.main.async {
+    center.removeDeliveredNotifications(withIdentifiers: [identifier])
+    fcitx.destroyNotificationItem(identifier, reason)
+  }
+}

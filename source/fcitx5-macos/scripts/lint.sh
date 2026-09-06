@@ -1,0 +1,18 @@
+set -e
+
+find keycode macosfrontend macosnotifications webpanel src tests -name '*.cpp' -o -name '*.h' | xargs clang-format -Werror --dry-run -style=file:fcitx5/.clang-format
+clang-format -Werror --dry-run macosfrontend/pasteboard.mm
+swift-format lint --configuration .swift-format.json -rs macosfrontend macosnotifications src assets appium
+./scripts/check-code-style.sh
+
+ruff check appium scripts
+ruff format --check appium scripts
+
+localizables=$(find assets -name 'Localizable.strings')
+for localizable in $localizables; do
+  if ! file "$localizable" | grep -q "UTF-16, little-endian text"; then
+    echo "FAIL: $localizable is not UTF-16 LE"
+    exit 1
+  fi
+done
+echo "$localizables" | xargs python3 scripts/validate-strings.py

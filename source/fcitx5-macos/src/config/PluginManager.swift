@@ -1,0 +1,510 @@
+import AlertToast
+import Fcitx
+import Logging
+import SwiftUI
+import UniformTypeIdentifiers
+
+@MainActor
+struct Plugin: Identifiable, Hashable {
+  let id: String
+  let category: String
+  let native: Bool
+  let github: String?
+  var dependencies: [String] = []
+}
+
+private let pluginMap = officialPlugins.reduce(into: [String: Plugin]()) { result, plugin in
+  result[plugin.id] = plugin
+}
+
+private func getInstalledPlugins() -> [Plugin] {
+  let names = getFileNamesWithExtension(pluginDir.localPath(), ".json")
+  return names.map {
+    pluginMap[$0]
+      ?? Plugin(
+        id: $0, category: NSLocalizedString("Other", comment: ""), native: true, github: nil)
+  }
+}
+
+private func getVersion(_ plugin: String, native: Bool) -> String {
+  let descriptor = getPluginDescriptor(plugin)
+  guard let json = readJSON(descriptor) as? [String: Any] else {
+    return ""
+  }
+  return native ? json["version"] as? String ?? "" : json["data_version"] as? String ?? ""
+}
+
+private func getAutoAddIms(_ plugin: String) -> [String] {
+  let descriptor = getPluginDescriptor(plugin)
+  guard let json = readJSON(descriptor) as? [String: Any] else {
+    return []
+  }
+  return json["input_methods"] as? [String] ?? []
+}
+
+private func autoAddIMs(_ plugins: [String]) {
+  Fcitx.reload()
+  // Otherwise user knows how to play with it, don't mess it up.
+  if Fcitx.imGroupCount() == 1 {
+    // Don't add IMs for dependencies.
+    let inputMethods = plugins.flatMap { getAutoAddIms($0) }
+    for im in inputMethods {
+      Fcitx.imAddToCurrentGroup(im)
+    }
+  }
+}
+
+@MainActor
+class PluginVM: ObservableObject {
+  @Published private(set) var installedPlugins = [Plugin]()
+  @Published private(set) var availablePlugins = [Plugin]()
+  @Published var nativeAvailable = [String]()
+  @Published var dataAvailable = [String]()
+  @Published var upToDate = false
+
+  func refresh() {
+    installedPlugins = getInstalledPlugins()
+    availablePlugins = officialPlugins.filter { !installedPlugins.contains($0) }
+    // Allow recheck update on reopen plugin manager.
+    upToDate = false
+  }
+}
+
+private struct Meta: Codable {
+  struct Plugin: Codable {
+    let name: String
+    // swift-format-ignore: AlwaysUseLowerCamelCase
+    let data_version: String
+    let version: String?
+  }
+  let plugins: [Plugin]
+}
+
+func checkPluginUpdate(_ tag: String) async -> (
+  success: Bool, nativePlugins: [String], dataPlugins: [String]
+) {
+  guard let url = URL(string: pluginBaseAddress(tag) + "meta-\(arch).json") else {
+    return (false, [], [])
+  }
+
+  do {
+    let (data, _) = try await URLSession.shared.data(from: url)
+    let meta = try JSONDecoder().decode(Meta.self, from: data)
+    var nativePlugins = [String]()
+    var dataPlugins = [String]()
+    let nativeVersionMap = meta.plugins.reduce(into: [String: String]()) { result, plugin in
+      result[plugin.name] = plugin.version
+    }
+    let dataVersionMap = meta.plugins.reduce(into: [String: String]()) { result, plugin in
+      result[plugin.name] = plugin.data_version
+    }
+    for plugin in getInstalledPlugins() {
+      if let version = nativeVersionMap[plugin.id],
+        version != getVersion(plugin.id, native: true)
+      {
+        nativePlugins.append(plugin.id)
+      }
+      if let dataVersion = dataVersionMap[plugin.id],
+        dataVersion != getVersion(plugin.id, native: false)
+      {
+        dataPlugins.append(plugin.id)
+      }
+    }
+    return (true, nativePlugins, dataPlugins)
+  } catch {
+    return (false, [], [])
+  }
+}
+
+struct PluginView: View {
+  @State private var selectedInstalled = Set<String>()
+  @State private var selectedAvailable = Set<String>()
+
+  @State private var processing = false
+  @State private var downloading = false
+  @State private var downloadProgress = 0.0
+
+  @State private var showUpToDate = false
+  @State private var showCheckFailed = false
+  @State private var showMainOutdated = false
+  @State private var showSystemNotSupported = false
+  @State private var showDownloadFailed = false
+  @State private var showUpdateAvailable = false
+  @State private var showInvalidFileName = false
+  @State private var showConfirmUninstall = false
+
+  @ObservedObject private var pluginVM = PluginVM()
+
+  init() {
+    refreshPlugins()
+  }
+
+  func refreshPlugins() {
+    pluginVM.refresh()
+  }
+
+  // Avoid downloading plugins that are incompatible with current main.
+  private func checkMainCompatible() async -> Bool {
+    // Either a stable release ...
+    if releaseTag != "latest" {
+      return true
+    }
+    // ... or a latest release.
+    let (success, latestCompatible, latest, stable) = await checkMainUpdate()
+    if !success {
+      showCheckFailed = true
+      return false
+    }
+    if latest != nil || stable != nil {
+      // latest > current or stable > current
+      showMainOutdated = true
+      return false
+    }
+    if !latestCompatible {
+      showSystemNotSupported = true
+      return false
+    }
+    // latest == current > stable
+    return true
+  }
+
+  private func checkUpdate() {
+    processing = true
+    Task {
+      defer { processing = false }
+      guard await checkMainCompatible() else {
+        return
+      }
+      let (success, nativePlugins, dataPlugins) = await checkPluginUpdate("latest")
+      guard success else {
+        showCheckFailed = true
+        return
+      }
+      pluginVM.nativeAvailable = nativePlugins
+      pluginVM.dataAvailable = dataPlugins
+      if nativePlugins.isEmpty && dataPlugins.isEmpty {
+        pluginVM.upToDate = true
+        showUpToDate = true
+      } else {
+        showUpdateAvailable = true
+      }
+    }
+  }
+
+  private func uninstall() {
+    processing = true
+    for selectedPlugin in selectedInstalled {
+      let descriptor = getPluginDescriptor(selectedPlugin)
+      // Plugins don't have shared files.
+      // https://github.com/fcitx-contrib/fcitx5-plugins/blob/master/scripts/check-shared-files.py
+      for file in getFilesFromDescriptor(descriptor) {
+        let _ = removeFile(libraryDir.appendingPathComponent(file))
+      }
+      let _ = removeFile(descriptor)
+      FCITX_INFO("Uninstalled \(selectedPlugin)")
+    }
+    // Always restart process so that
+    // 1. Plugin binary is unloaded, thus input methods that belong to the plugin are filtered out from input method list, and removed from profile next time.
+    // 2. Restart is not needed for plugin fresh install.
+    restart()
+  }
+
+  private func categorizePlugins(_ plugins: [Plugin]) -> some View {
+    let categorizedPlugins = plugins.reduce(into: [String: [Plugin]]()) { result, plugin in
+      result[plugin.category, default: []].append(plugin)
+    }
+    return ForEach(categorizedPlugins.keys.sorted(), id: \.self) { category in
+      Section(header: Text(category)) {
+        ForEach(categorizedPlugins[category]!) { plugin in
+          HStack {
+            Text(plugin.id)
+            if let github = plugin.github,
+              let url = URL(string: "https://github.com/\(github)")
+            {
+              Button {
+                NSWorkspace.shared.open(url)
+              } label: {
+                Image(systemName: "arrow.up.forward.app.fill")
+              }.buttonStyle(.plain).help("\(url)")
+            }
+          }
+          .listRowSeparator(.hidden)
+        }
+      }
+    }
+  }
+
+  private func install(isUpdate: Bool = false) {
+    processing = true
+    Task {
+      defer {
+        downloading = false
+        processing = false
+      }
+      guard await checkMainCompatible() else {
+        return
+      }
+      if !isUpdate {
+        pluginVM.nativeAvailable.removeAll()
+        pluginVM.dataAvailable.removeAll()
+
+        var countedPlugins = Set<String>()
+
+        @MainActor
+        func helper(_ plugin: String) {
+          if countedPlugins.contains(plugin) {
+            return
+          }
+          countedPlugins.insert(plugin)
+          // Skip installed dependencies.
+          if let info = pluginMap[plugin], !pluginVM.installedPlugins.contains(info) {
+            if info.native {
+              pluginVM.nativeAvailable.append(plugin)
+            }
+            // Assumption: all official plugins contain a data tarball.
+            pluginVM.dataAvailable.append(plugin)
+            for dependency in info.dependencies {
+              helper(dependency)
+            }
+          }
+        }
+        for plugin in selectedAvailable {
+          helper(plugin)
+        }
+      }
+      let selectedPlugins = selectedAvailable
+      selectedAvailable.removeAll()
+
+      let updater = Updater(
+        tag: releaseTag, main: false, debug: false, nativePlugins: pluginVM.nativeAvailable,
+        dataPlugins: pluginVM.dataAvailable)
+      downloading = true
+      let (_, nativeResults, dataResults) = await updater.update(onProgress: { progress in
+        Task { @MainActor in
+          downloadProgress = progress
+        }
+      })
+      refreshPlugins()
+      if isUpdate {
+        if !nativeResults.filter({ _, success in success }).isEmpty {
+          restart()
+        }
+      } else {
+        let downloadedPlugins = selectedPlugins.filter {
+          (nativeResults[$0] ?? true) && (dataResults[$0] ?? true)
+        }
+        if downloadedPlugins.isEmpty {
+          showDownloadFailed = true
+          return
+        }
+        Fcitx.setupI18N()  // Register .mo. Must be before reload (first step of autoAddIMs).
+        autoAddIMs(Array(downloadedPlugins))
+        ConfigWindowController.refreshAll()
+      }
+    }
+  }
+
+  private func restart() {
+    ConfigWindowController.closeWindow("plugin")
+    DispatchQueue.main.async {
+      restartProcess()
+    }
+  }
+
+  var body: some View {
+    if downloading {
+      ProgressView(value: downloadProgress, total: 1)
+    }
+    HStack {
+      VStack {
+        Text("Installed").font(.system(size: sectionHeaderSize)).frame(
+          maxWidth: .infinity, alignment: .leading)
+        List(selection: $selectedInstalled) {
+          categorizePlugins(pluginVM.installedPlugins)
+        }
+        .overlay(RoundedRectangle(cornerRadius: listBorderRadius).stroke(listBorderColor))
+        HStack {
+          // No plugin update for stable release.
+          if releaseTag == "latest" {
+            Button {
+              checkUpdate()
+            } label: {
+              Text("Check update")
+            }.buttonStyle(.borderedProminent)
+              .disabled(processing || pluginVM.upToDate)
+              .sheet(isPresented: $showUpdateAvailable) {
+                VStack {
+                  Text("Update available")
+
+                  Spacer().frame(height: gapSize)
+
+                  ForEach(
+                    Set(pluginVM.nativeAvailable).union(pluginVM.dataAvailable).sorted(), id: \.self
+                  ) {
+                    plugin in
+                    Text(plugin)
+                  }
+
+                  Spacer().frame(height: gapSize)
+
+                  Text("Fcitx5 will auto restart if needed.")
+
+                  HStack {
+                    Button {
+                      showUpdateAvailable = false
+                    } label: {
+                      Text("Cancel")
+                    }
+                    Button {
+                      showUpdateAvailable = false
+                      install(isUpdate: true)
+                    } label: {
+                      Text("Update")
+                    }.buttonStyle(.borderedProminent)
+                  }
+                }.padding()
+              }
+          }
+          Button {
+            showConfirmUninstall = true
+          } label: {
+            Text("Uninstall")
+          }.disabled(
+            selectedInstalled.isEmpty || processing
+          )
+          .sheet(isPresented: $showConfirmUninstall) {
+            VStack(spacing: gapSize) {
+              Text("Are you sure to uninstall selected plugins?")
+
+              Text("Fcitx5 will auto restart.")
+
+              HStack {
+                Button {
+                  showConfirmUninstall = false
+                } label: {
+                  Text("Cancel")
+                }
+                Button {
+                  showConfirmUninstall = false
+                  uninstall()
+                } label: {
+                  Text("OK")
+                }.buttonStyle(.borderedProminent)
+              }
+            }.padding()
+          }
+        }
+      }
+      VStack {
+        Text("Available").font(.system(size: sectionHeaderSize)).frame(
+          maxWidth: .infinity, alignment: .leading)
+        List(selection: $selectedAvailable) {
+          categorizePlugins(pluginVM.availablePlugins)
+        }
+        .overlay(RoundedRectangle(cornerRadius: listBorderRadius).stroke(listBorderColor))
+        .contextMenu(forSelectionType: String.self) { items in
+        } primaryAction: { items in
+          // Double click
+          install()
+        }
+        HStack {
+          Button {
+            install()
+          } label: {
+            Text("Install")
+          }.disabled(selectedAvailable.isEmpty || processing)
+            .buttonStyle(.borderedProminent)
+          SelectFileButton(
+            allowedSuffixes: [".bz2"],
+            allowsMultipleSelection: true,
+            initialDirectory: URL(
+              fileURLWithPath: homeDir.appendingPathComponent("Downloads").localPath()),
+            hasFile: false,
+            label: { Text("Install manually") },
+            onSelect: { urls in
+              var installedPlugins = Set<String>()
+              for url in urls {
+                let fileName = url.lastPathComponent
+                guard fileName.hasSuffix(".tar.bz2") else { continue }
+                let base = url.deletingPathExtension().deletingPathExtension().lastPathComponent
+                let pluginName: String
+                let native: Bool
+                if base.hasSuffix("-any") {
+                  pluginName = String(base.dropLast(4))
+                  native = false
+                } else if base.hasSuffix("-\(arch)") {
+                  pluginName = String(base.dropLast("-\(arch)".count))
+                  native = true
+                } else {
+                  showInvalidFileName = true
+                  continue
+                }
+                mkdirP(cacheDir.localPath())
+                let cacheFileURL = getCacheURL(pluginName, native: native)
+                let _ = copyFile(url, cacheFileURL)
+                let _ = exec(
+                  "/usr/bin/xattr",
+                  ["-dr", "com.apple.quarantine", cacheFileURL.localPath()])
+                let _ = extractPlugin(pluginName, native: native)
+                installedPlugins.insert(pluginName)
+              }
+              autoAddIMs(Array(installedPlugins))
+              restart()
+            },
+            accessibilityId: "InstallManually"
+          ) {
+            VStack(spacing: gapSize) {
+              dropZoneLabel("*-\(arch)|any.tar.bz2")
+              Text("Fcitx5 will auto restart.")
+            }
+          }
+        }
+      }
+    }.padding()
+      .toast(isPresenting: $showUpToDate) {
+        AlertToast(
+          displayMode: .hud,
+          type: .complete(Color.green),
+          title: NSLocalizedString("All plugins are up to date", comment: ""))
+      }
+      .toast(isPresenting: $showCheckFailed) {
+        AlertToast(
+          displayMode: .hud, type: .error(Color.red),
+          title: NSLocalizedString("Failed to check update", comment: ""))
+      }
+      .toast(isPresenting: $showMainOutdated) {
+        AlertToast(
+          displayMode: .hud, type: .regular,
+          title: NSLocalizedString("Please update Fcitx5 in \"About\" first", comment: ""))
+      }
+      .toast(isPresenting: $showSystemNotSupported) {
+        AlertToast(
+          displayMode: .hud, type: .error(Color.red),
+          title: NSLocalizedString("Your system version is no longer supported", comment: ""))
+      }
+      .toast(isPresenting: $showDownloadFailed) {
+        AlertToast(
+          displayMode: .hud, type: .error(Color.red),
+          title: NSLocalizedString("Download failed", comment: ""))
+      }
+      .toast(isPresenting: $showInvalidFileName) {
+        AlertToast(
+          displayMode: .hud, type: .error(Color.red),
+          title: NSLocalizedString("Invalid file name", comment: ""))
+      }
+  }
+}
+
+public class PluginManager: ConfigWindowController {
+  let view = PluginView()
+  convenience init() {
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: configWindowWidth, height: configWindowHeight),
+      styleMask: styleMask,
+      backing: .buffered, defer: false)
+    window.title = NSLocalizedString("Plugin Manager", comment: "")
+    window.center()
+    self.init(window: window)
+    window.contentView = NSHostingView(rootView: view)
+  }
+}

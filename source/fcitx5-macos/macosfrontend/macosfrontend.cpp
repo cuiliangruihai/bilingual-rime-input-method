@@ -1,0 +1,536 @@
+/*
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ * SPDX-FileCopyrightText: Copyright 2021-2023 Fcitx5 for Android Contributors
+
+ * SPDX-License-Identifier: GPL-3.0-only
+ * SPDX-FileCopyrightText: Copyright 2023-2024 Fcitx5 macOS contributors
+ */
+#include "macosfrontend.h"
+#include "fcitx.h"
+#include "keycode.h"
+#include "macosfrontend-swift.h"
+
+#include <CoreFoundation/CoreFoundation.h>
+#include <fcitx-utils/event.h>
+#include <fcitx/addonmanager.h>
+#include <fcitx/inputcontext.h>
+#include <fcitx/inputmethodengine.h>
+#include <fcitx/inputmethodentry.h>
+#include <fcitx/inputmethodmanager.h>
+#include <fcitx/inputpanel.h>
+#include <nlohmann/json.hpp>
+
+#include "../deps/url-filter/src/url-filter.hpp"
+#include "../fcitx5/src/modules/clipboard/clipboard_public.h"
+
+namespace fcitx {
+
+bool chinesePunctuation = false;
+bool rimePunctuation = false;
+
+void overrideKeyboardLayoutAsync() {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      SwiftFrontend::overrideKeyboardLayout();
+    });
+}
+
+MacosFrontend::MacosFrontend(Instance *instance)
+    : instance_(instance),
+      focusGroup_("macos", instance->inputContextManager()) {
+    // macOS's keypad is always number and never navigation. It doesn't support
+    // NumLock. Force NumLock for xkb so that keyboard-cn can produce numbers.
+    instance_->updateXkbStateMask(focusGroup_.display(), 0, 0,
+                                  static_cast<uint32_t>(KeyState::NumLock));
+    // For update when switching internal input method of rime.
+    eventHandlers_.emplace_back(instance_->watchEvent(
+        EventType::InputContextUpdateUI, EventWatcherPhase::Default,
+        [this](Event &event) { updateStatusItemText(); }));
+    // For switching from VSCode to Terminal, otherwise the first key press
+    // triggers text update.
+    eventHandlers_.emplace_back(
+        instance_->watchEvent(EventType::InputContextInputMethodActivated,
+                              EventWatcherPhase::Default, [this](Event &event) {
+                                  updateStatusItemText();
+                                  overrideKeyboardLayoutAsync();
+                              }));
+    reloadConfig();
+}
+
+void MacosFrontend::updateStatusItemText() {
+    if (auto ic = instance_->mostRecentInputContext()) {
+        auto engine = instance_->inputMethodEngine(ic);
+        auto entry = instance_->inputMethodEntry(ic);
+        std::string display;
+        if (engine) {
+            auto subModeLabel = engine->subModeLabel(*entry, *ic);
+            auto name = entry->label().empty() ? entry->name() : entry->label();
+            if (subModeLabel.empty()) {
+                display = std::move(name);
+            } else {
+                display = std::move(subModeLabel);
+            }
+        } else {
+            display = "🐧";
+        }
+        if (statusItemText != display) {
+            statusItemText = std::move(display);
+            SwiftFrontend::setStatusItemText(statusItemText);
+        }
+    }
+}
+
+bool skipPassword(const Configuration *config) {
+    RawConfig raw;
+    config->save(raw);
+    return *raw.valueByPath("IgnorePasswordFromPasswordManager") == "True";
+}
+
+// Runs on the fcitx thread.
+void MacosFrontend::pollPasteboard() {
+    monitorPasteboardEvent_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC,
+        now(CLOCK_MONOTONIC) + *config_.pollPasteboardInterval * 1000000,
+        100000, [this](EventSourceTime *time, uint64_t) {
+            if (!*config_.monitorPasteboard) {
+                return true;
+            }
+
+            dispatch_async(dispatch_get_main_queue(), ^{
+              std::string selection = SwiftFrontend::getSelection();
+              if (selection.empty()) {
+                  return;
+              }
+              Fcitx::shared().schedule([selection = std::move(selection),
+                                        this]() {
+                  if (auto clipboard =
+                          Fcitx::shared().addonMgr().addon("clipboard", true)) {
+                      clipboard->call<IClipboard::setPrimaryV2>("", selection,
+                                                                false);
+                      FCITX_DEBUG() << "Add to primary: " << selection;
+                  }
+              });
+            });
+
+            if (auto clipboard =
+                    instance_->addonManager().addon("clipboard", true)) {
+                bool isPassword = false;
+                std::string str = getPasteboardString(&isPassword);
+                if (str.size() <= 2048 /* otherwise unlikely to be URL and will
+                                          hang for seconds */
+                    && *config_.removeTrackingParameters) {
+                    str = url_filter::filterTrackingParameters(str);
+                }
+                if (!str.empty() &&
+                    !(isPassword && skipPassword(clipboard->getConfig()))) {
+                    clipboard->call<IClipboard::setClipboardV2>("", str,
+                                                                isPassword);
+                    FCITX_DEBUG() << "Add to clipboard: "
+                                  << (isPassword ? "[concealed]" : str);
+                }
+            }
+            time->setNextInterval(*config_.pollPasteboardInterval * 1000000);
+            time->setOneShot();
+            return true;
+        });
+    monitorPasteboardEvent_->setOneShot();
+}
+
+void MacosFrontend::updateConfig() {
+    SwiftFrontend::setStatusItemMode(int(*config_.statusBar));
+    simulateKeyRelease_ = config_.simulateKeyRelease.value();
+    simulateKeyReleaseDelay_ =
+        static_cast<long>(config_.simulateKeyReleaseDelay.value()) * 1000L;
+    pollPasteboard();
+    appDefaultIMCache_.clear();
+    for (const auto &item : config_.appDefaultIM.value()) {
+        try {
+            auto j = nlohmann::json::parse(item);
+            auto app = j["appId"];
+            auto im = j["imName"];
+            if (app.is_string() && im.is_string()) {
+                appDefaultIMCache_[app.get<std::string>()] =
+                    im.get<std::string>();
+            }
+        } catch (const std::exception &e) {
+            FCITX_WARN() << "Failed to parse appDefaultIM: " << item;
+        }
+    }
+}
+
+void MacosFrontend::reloadConfig() {
+    readAsIni(config_, ConfPath);
+    updateConfig();
+}
+
+void MacosFrontend::save() {
+    config_.simulateKeyRelease.setValue(simulateKeyRelease_);
+    config_.simulateKeyReleaseDelay.setValue(simulateKeyReleaseDelay_ / 1000);
+    safeSaveAsIni(config_, ConfPath);
+}
+
+std::string MacosFrontend::keyEvent(ICUUID uuid, const Key &key, bool isRelease,
+                                    bool isPassword, const char *text,
+                                    unsigned int cursor, unsigned int anchor) {
+    auto *ic = this->findIC(uuid);
+    if (!ic) {
+        return "{}";
+    }
+    ic->setPassword(isPassword);
+    ic->focusIn();
+    KeyEvent keyEvent(ic, key, isRelease);
+    ic->isSyncEvent = true;
+    if (!isPassword) {
+        ic->setSurroundingText(text, cursor, anchor);
+    }
+    ic->keyEvent(keyEvent);
+    ic->isSyncEvent = false;
+
+    if (simulateKeyRelease_ && !isRelease && !key.isModifier() &&
+        keyEvent.accepted()) {
+        auto timeEvent = instance()->eventLoop().addTimeEvent(
+            CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + simulateKeyReleaseDelay_,
+            10000, [this, ic, key = key](EventSourceTime *source, uint64_t) {
+                FCITX_DEBUG() << "Simulate key release " << key.toString();
+                if (instance_->mostRecentInputContext() == ic) {
+                    KeyEvent releaseEvent(ic, key, true);
+                    ic->keyEvent(releaseEvent);
+                }
+                delete source;
+                return true;
+            });
+        // Leak it from unique_ptr, and let it delete itself when it's done.
+        auto timeEventPtr = timeEvent.release();
+    }
+
+    bool keepVimPreedit = false;
+    if (ic->vimMode() && !keyEvent.accepted() &&
+        imGetCurrentIMName() != "keyboard-us") {
+        if (key.check(FcitxKey_Escape) ||
+            key.check(FcitxKey_bracketleft, KeyState::Ctrl) ||
+            key.check(FcitxKey_c, KeyState::Ctrl)) {
+            // If the dummy preedit hack on Ctrl was needed, it has to be
+            // preserved here, otherwise vim won't enter normal mode. Make this
+            // explicit, as some engines (rime, mozc) will call
+            // updateUserInterface(UserInterfaceComponent::InputPanel) even if
+            // input panel was and keeps empty, which makes webpanel clear the
+            // dummy preedit.
+            keepVimPreedit = true;
+            imSetCurrentIM("keyboard-us");
+        } else if (ic->inputPanel().overlayMessage().empty() &&
+                   ic->inputPanel().empty()) {
+            // HACK: For Terminal and iTerm, when pressing an handled ctrl, we
+            // force a dummy preedit so that the following c or [ could be
+            // processed by fcitx. It's known that Esc won't work in Terminal,
+            // but we don't want to force dummy preedit unconditionally as it
+            // breaks other keys.
+            if (!isRelease &&
+                (ic->program() == "com.apple.Terminal" ||
+                 ic->program() == "com.googlecode.iterm2") &&
+                (key.check(FcitxKey_Control_L, KeyState::Ctrl) ||
+                 key.check(FcitxKey_Control_R, KeyState::Ctrl))) {
+                keepVimPreedit = true;
+                ic->setVimPreedit(true);
+            }
+        }
+    }
+    if (!keepVimPreedit) {
+        ic->setVimPreedit(false);
+    }
+    return ic->popState(keyEvent.accepted(), key);
+}
+
+MacosInputContext *MacosFrontend::findIC(ICUUID uuid) {
+    return dynamic_cast<MacosInputContext *>(
+        instance_->inputContextManager().findByUUID(uuid));
+}
+
+ICUUID MacosFrontend::createInputContext(const std::string &appId,
+                                         const std::string &accentColor) {
+    auto ic = new MacosInputContext(this, instance_->inputContextManager(),
+                                    appId, accentColor);
+    ic->setFocusGroup(&focusGroup_);
+    FCITX_INFO() << "Create IC for " << appId;
+    return ic->uuid();
+}
+
+void MacosFrontend::destroyInputContext(ICUUID uuid) {
+    // InputContext is not owned by InputContextManager.
+    // The only exception is when Instance is destroyed,
+    // InputContextManager deletes all InputContexts.
+    auto ic = findIC(uuid);
+    // This check is necessary. Although system sends destroy event immediately
+    // after focus out for most scenarios, when using fn+E to call out emoji
+    // picker (com.apple.CharacterPaletteIM), the sequence is: user clicks emoji
+    // -> picker focus out -> original client focus in -> user starts typing --
+    // after a while --> picker destroy. If we don't check whether picker's
+    // context has focus, we will reset current focus to nullptr as well, which
+    // interrupts user's typing.
+    if (ic->hasFocus()) {
+        ic->focusOut();
+        focusGroup_.setFocusedInputContext(nullptr);
+    }
+    FCITX_INFO() << "Destroy IC for " << ic->program();
+    delete ic;
+}
+
+void MacosFrontend::useAppDefaultIM(const std::string &appId) {
+    auto it = appDefaultIMCache_.find(appId);
+    if (it != appDefaultIMCache_.end()) {
+        imSetCurrentIM(it->second.c_str());
+    }
+}
+
+void MacosFrontend::useVimMode(const std::string &appId,
+                               MacosInputContext *ic) {
+    const auto &vimMode = *config_.vimMode;
+    ic->setVimMode(std::ranges::find(vimMode, appId) != vimMode.end());
+}
+
+void MacosFrontend::focusIn(ICUUID uuid, bool isPassword) {
+    auto *ic = findIC(uuid);
+    if (!ic)
+        return;
+    webpanel_->applyAppAccentColor(ic->getAccentColor()); // app-specific
+    ic->setPassword(isPassword);
+    ic->focusIn();
+    auto program = ic->program();
+    FCITX_INFO() << "Focus in " << program;
+    if (!program.empty()) {
+        // Focusing on another input field in the same app shouldn't activate
+        // default IM. But if global config says reset state on focus change,
+        // must also activate default IM, otherwise a different globally-active
+        // IM will be activated. Test it with Apps that have different
+        // InputContext for different input fields, such as Chrome and iTerm.
+        if (program != lastFocusedApp_ ||
+            instance_->globalConfig().resetStateWhenFocusIn() ==
+                PropertyPropagatePolicy::All) {
+            useAppDefaultIM(program);
+        }
+        useVimMode(program, ic);
+    }
+    lastFocusedApp_ = program;
+}
+
+std::string MacosFrontend::commitComposition(ICUUID uuid) {
+    auto *ic = findIC(uuid);
+    if (!ic)
+        return "{}";
+
+    // Fake a switch input method event to call engine's deactivate method and
+    // maybe commit and clear preedit synchronously.
+    ic->isSyncEvent = true;
+    InputContextEvent event(ic, EventType::InputContextSwitchInputMethod);
+    auto engine = instance_->inputMethodEngine(ic);
+    auto entry = instance_->inputMethodEntry(ic);
+    if (engine && entry) {
+        // Prevent crash for unavailable IM (addon not loaded).
+        engine->deactivate(*entry, event);
+    }
+    // At this stage panel is still shown. If removed, a following backspace
+    // will commit a BS character in VSCode.
+    ic->setDummyPreedit(false);
+    auto state = ic->popState(false);
+    ic->isSyncEvent = false;
+
+    return state;
+}
+
+void MacosFrontend::focusOut(ICUUID uuid) {
+    auto *ic = findIC(uuid);
+    if (!ic)
+        return;
+    FCITX_INFO() << "Focus out " << ic->program();
+    ic->focusOut();
+}
+
+void MacosInputContext::setSurroundingText(const std::string &text,
+                                           unsigned int cursor,
+                                           unsigned int anchor) {
+    if (lastSurroundingText_ == text && lastSurroundingCursor_ == cursor &&
+        lastSurroundingAnchor_ == anchor) {
+        return;
+    }
+    lastSurroundingText_ = text;
+    lastSurroundingCursor_ = cursor;
+    lastSurroundingAnchor_ = anchor;
+    // Defensive: don't interrupt user input.
+    if (inputPanel().empty()) {
+        // Since system doesn't send selection change event, must reset IC
+        // manually so that when moving caret to the next position of
+        // alphanumeric and typing period/comma, they aren't converted to
+        // Chinese punctuations.
+        reset();
+    }
+    surroundingText().setText(text, cursor, anchor);
+    updateSurroundingText();
+}
+
+MacosInputContext::MacosInputContext(MacosFrontend *frontend,
+                                     InputContextManager &inputContextManager,
+                                     const std::string &program,
+                                     const std::string &accentColor)
+    : InputContext(inputContextManager, program), frontend_(frontend),
+      accentColor_(accentColor) {
+    created();
+}
+
+MacosInputContext::~MacosInputContext() { destroy(); }
+
+void MacosInputContext::commitStringImpl(const std::string &text) {
+    state_.commit += text;
+    // For async event we need to perform commit, otherwise it's buffered and
+    // committed in next commit with a key event. e.g. fcitx commits a ，
+    // asynchronously when deleting , after a number/English character.
+    if (!isSyncEvent) {
+        // When changing this, test Messages.app by clicking a candidate.
+        // Previously buggy behavior is that preedit is appended after commit.
+        SwiftFrontend::commitAsync(state_.commit);
+        resetState();
+    }
+}
+
+void MacosInputContext::updatePreeditImpl() {
+    auto preedit =
+        frontend_->instance()->outputFilter(this, inputPanel().clientPreedit());
+    state_.preedit = preedit.toString();
+    state_.caretPos = preedit.cursor();
+}
+
+std::string MacosInputContext::popState(bool accepted, const Key &key) {
+    nlohmann::json j;
+
+    // We translated Chinese punctuations to ASCII in
+    // osx_unicode_to_fcitx_keysym, but there is functionality of "use ASCII
+    // punctuation after alpha/digit", which is implemented by not accepting key
+    // event, resulting in Chinese punctuations. Thus we accept the event and
+    // commit the ASCII punctuation directly.
+    bool noModExceptShift =
+        (key.states() & ~KeyStates(KeyState::Shift)) == KeyStates();
+    auto utf8 = Key::keySymToUTF8(key.sym());
+    bool isPunct =
+        utf8.size() == 1 && std::ispunct(static_cast<unsigned char>(utf8[0]));
+    if (::pinyinKeyboard && !accepted && state_.commit.empty() &&
+        noModExceptShift && isPunct) {
+        j["commit"] = std::move(utf8);
+        j["accepted"] = true;
+    } else {
+        j["commit"] = state_.commit;
+        j["accepted"] = accepted;
+    }
+
+    j["preedit"] = state_.preedit;
+    j["caretPos"] = state_.caretPos;
+    j["dummyPreedit"] = state_.dummyPreedit || state_.vimPreedit;
+    resetState();
+    return j.dump();
+}
+
+void MacosInputContext::commitAndSetPreeditAsync() {
+    auto state = state_;
+    resetState();
+    SwiftFrontend::commitAndSetPreeditAsync(state.commit, state.preedit,
+                                            state.caretPos, state.dummyPreedit);
+}
+
+std::tuple<double, double, double>
+MacosInputContext::getCaretCoordinates(bool followCaret) {
+    // Memorize to avoid jumping to origin on failure.
+    static double x = 0, y = 0, height = 0;
+    auto res = SwiftFrontend::getCaretCoordinates(followCaret);
+    if (res.getCount() == 3) {
+        x = res[0];
+        y = res[1];
+        height = res[2];
+    } else {
+        FCITX_DEBUG() << "Failed to get caret coordinates";
+    }
+    return std::make_tuple(x, y, height);
+}
+
+void MacosInputContext::setPassword(bool isPassword) {
+    CapabilityFlags flags = CapabilityFlag::Preedit;
+    if (isPassword) {
+        flags |= CapabilityFlag::Password;
+    } else {
+        flags |= CapabilityFlag::SurroundingText;
+    }
+    setCapabilityFlags(flags);
+}
+
+} // namespace fcitx
+
+FCITX_ADDON_FACTORY_V2(macosfrontend, fcitx::MacosFrontendFactory);
+
+std::string process_key(ICUUID uuid, uint32_t unicode, uint32_t osxModifiers,
+                        uint16_t osxKeycode, bool isRelease, bool isPassword,
+                        const char *text, unsigned int cursor,
+                        unsigned int anchor) noexcept {
+    const fcitx::Key parsedKey =
+        osx_key_to_fcitx_key(unicode, osxModifiers, osxKeycode);
+    return with_fcitx([=](Fcitx &fcitx) {
+        auto that = dynamic_cast<fcitx::MacosFrontend *>(fcitx.frontend());
+        return that->keyEvent(uuid, parsedKey, isRelease, isPassword, text,
+                              cursor, anchor);
+    });
+}
+
+ICUUID create_input_context(const char *appId,
+                            const char *accentColor) noexcept {
+    return with_fcitx([=](Fcitx &fcitx) {
+        return fcitx.frontend()->createInputContext(appId, accentColor);
+    });
+}
+
+void destroy_input_context(ICUUID uuid) noexcept {
+    with_fcitx([=](Fcitx &fcitx) {
+        return fcitx.frontend()->destroyInputContext(uuid);
+    });
+}
+
+void focus_in(ICUUID uuid, bool isPassword) noexcept {
+    with_fcitx([=](Fcitx &fcitx) {
+        return fcitx.frontend()->focusIn(uuid, isPassword);
+    });
+}
+
+std::string commit_composition(ICUUID uuid) noexcept {
+    return with_fcitx([=](Fcitx &fcitx) {
+        return fcitx.frontend()->commitComposition(uuid);
+    });
+}
+
+void focus_out(ICUUID uuid) noexcept {
+    with_fcitx([=](Fcitx &fcitx) { return fcitx.frontend()->focusOut(uuid); });
+}
+
+std::string get_current_group_layout() noexcept {
+    return with_fcitx([=](Fcitx &fcitx) -> std::string {
+        auto &group = fcitx.instance()->inputMethodManager().currentGroup();
+        auto groupLayout = group.defaultLayout();
+
+        auto *ic = fcitx.instance()->mostRecentInputContext();
+        auto *entry = ic ? fcitx.instance()->inputMethodEntry(ic) : nullptr;
+        auto addon = entry ? entry->addon() : "";
+        // HACK: VSCode terminal (xterm.js) can't type ， and 。, so replace
+        // com.apple.keylayout.ABC with com.apple.keylayout.PinyinKeyboard.
+        auto isChineseAddons = addon == "pinyin" || addon == "table";
+        auto isRime = addon == "rime";
+        if (isChineseAddons || isRime) {
+            auto imLayout = group.layoutFor(entry->uniqueName());
+            if (imLayout == "us" || (imLayout == "" && groupLayout == "us")) {
+                groupLayout =
+                    (isChineseAddons && fcitx::chinesePunctuation) ||
+                            (isRime && fcitx::rimePunctuation)
+                        ? "PinyinKeyboard"
+                        : "us" /* us is needed when group has us-dvorak and
+                                  pinyin has us on typing comma and period.
+                                */
+                    ;
+            }
+        }
+        ::currentLayout = groupLayout;
+        ::pinyinKeyboard = groupLayout == "PinyinKeyboard";
+
+        return groupLayout;
+    });
+}

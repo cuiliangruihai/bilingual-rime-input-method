@@ -1,0 +1,26 @@
+.DS_Store
+build/
+out/
+dist/
+coverage/
+test-results/
+playwright-report/
+.cache/
+.parcel-cache/
+node_modules/
+*.dmg
+*.zip
+*.tar.bz2
+*.app/
+*.xcarchive/
+*.pyc
+__pycache__/
+
+# Local machine configuration and credentials.
+.env
+.env.*
+*.local
+
+# Local agent/editor metadata copied from the upstream working tree.
+source/fcitx5-macos/.opencode/
+source/fcitx5-macos/opencode.jsonc

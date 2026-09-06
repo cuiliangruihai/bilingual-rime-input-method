@@ -1,0 +1,290 @@
+import Cocoa
+import Logging
+import UniformTypeIdentifiers
+
+func envDir(_ key: String, _ fallback: String) -> URL {
+  if let value = ProcessInfo.processInfo.environment[key], !value.isEmpty {
+    return URL(fileURLWithPath: value)
+  }
+  return homeDir.appendingPathComponent(fallback)
+}
+
+let homeDir = FileManager.default.homeDirectoryForCurrentUser
+let libraryDir = homeDir.appendingPathComponent("Library/fcitx5")
+let cacheDir = libraryDir.appendingPathComponent("cache")
+let pluginDir = libraryDir.appendingPathComponent("plugin")
+let configDir = envDir("FCITX_CONFIG_HOME", ".config/fcitx5")
+let localDir = envDir("FCITX_DATA_HOME", ".local/share/fcitx5")
+let wwwDir = localDir.appendingPathComponent("www")
+let jsPluginDir = wwwDir.appendingPathComponent("plugin")
+let imLocalDir = localDir.appendingPathComponent("inputmethod")
+let pinyinLocalDir = localDir.appendingPathComponent("pinyin")
+let tableLocalDir = localDir.appendingPathComponent("table")
+let rimeLocalDir = localDir.appendingPathComponent("rime")
+
+let squirrelDir = homeDir.appendingPathComponent("Library/Rime")
+
+let sourceRepo = "https://github.com/fcitx/fcitx5-macos"
+
+let osVersion = ProcessInfo.processInfo.operatingSystemVersion
+private let macOSVersion =
+  "\(osVersion.majorVersion).\(osVersion.minorVersion).\(osVersion.patchVersion)"
+
+private func compareVersions(_ v1: String, _ v2: String) -> ComparisonResult {
+  return v1.compare(v2, options: .numeric)
+}
+
+func compatibleWith(_ version: String) -> Bool {
+  return compareVersions(macOSVersion, version) != .orderedAscending
+}
+
+func getArch() -> String {
+  #if arch(x86_64)
+    return "x86_64"
+  #else
+    return "arm64"
+  #endif
+}
+let arch = getArch()
+
+func fileTypes(_ extensions: [String]) -> [UTType] {
+  return extensions.compactMap {
+    let ext = $0.split(separator: ".").last.map(String.init) ?? $0
+    return UTType(filenameExtension: ext)
+  }
+}
+
+func getFileNamesWithExtension(_ path: String, _ suffix: String = "", _ full: Bool = false)
+  -> [String]
+{
+  do {
+    let fileNames = try FileManager.default.contentsOfDirectory(atPath: path)
+    var names: [String] = []
+    for fileName in fileNames {
+      if fileName.hasSuffix(suffix) {
+        names.append(full ? fileName : String(fileName.prefix(fileName.count - suffix.count)))
+      }
+    }
+    return names.sorted()
+  } catch {
+    return []
+  }
+}
+
+extension String {
+  var deletingPathExtension: String {
+    (self as NSString).deletingPathExtension
+  }
+}
+
+extension URL {
+  var isDirectory: Bool {
+    (try? resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+  }
+
+  // Local file name is %-encoded with path()
+  func localPath() -> String {
+    let path = self.path()
+    guard let decoded = path.removingPercentEncoding else {
+      FCITX_ERROR("Failed to decode \(self)")
+      return path
+    }
+    return decoded
+  }
+
+  func exists() -> Bool {
+    return FileManager.default.fileExists(atPath: self.localPath())
+  }
+
+  func contains(_ file: URL) -> Bool {
+    let path = self.localPath()
+    let filePath = file.localPath()
+    // path[-1] is always "/" for directory.
+    return path.count < filePath.count && filePath.hasPrefix(path)
+  }
+}
+
+func mkdirP(_ path: String) {
+  do {
+    try FileManager.default.createDirectory(
+      atPath: path, withIntermediateDirectories: true, attributes: nil)
+  } catch {}
+}
+
+func copyFile(_ src: URL, _ dest: URL) -> Bool {
+  do {
+    try FileManager.default.copyItem(at: src, to: dest)
+    return true
+  } catch {
+    FCITX_ERROR(
+      "Error copying \(src.localPath()) to \(dest.localPath()): \(error.localizedDescription)")
+    return false
+  }
+}
+
+func moveFile(_ src: URL, _ dest: URL) -> Bool {
+  do {
+    try FileManager.default.moveItem(at: src, to: dest)
+    return true
+  } catch {
+    FCITX_ERROR(
+      "Error moving \(src.localPath()) to \(dest.localPath()): \(error.localizedDescription)")
+    return false
+  }
+}
+
+// Caller should ensure parent directory of dest exists.
+func moveAndMerge(_ src: URL, _ dest: URL) -> Bool {
+  if !src.exists() {
+    return false
+  }
+  if !dest.exists() {
+    return moveFile(src, dest)
+  }
+  if src.isDirectory {
+    if !dest.isDirectory {
+      return false
+    }
+    do {
+      var success = true
+      let fileNames = try FileManager.default.contentsOfDirectory(atPath: src.localPath())
+      for fileName in fileNames {
+        if !moveAndMerge(
+          src.appendingPathComponent(fileName), dest.appendingPathComponent(fileName))
+        {
+          success = false
+        }
+      }
+      return success && removeFile(src)
+    } catch {
+      return false
+    }
+  } else {
+    if dest.isDirectory {
+      return false
+    }
+    return removeFile(dest) && moveFile(src, dest)
+  }
+}
+
+func removeFile(_ file: URL) -> Bool {
+  do {
+    try FileManager.default.removeItem(at: file)
+    return true
+  } catch {
+    FCITX_ERROR("Error removing \(file.localPath()): \(error.localizedDescription)")
+    return false
+  }
+}
+
+func readUTF8(_ file: URL) -> String? {
+  do {
+    return try String(contentsOf: file, encoding: .utf8)
+  } catch {
+    FCITX_ERROR("Error reading \(file.localPath()): \(error.localizedDescription)")
+    return nil
+  }
+}
+
+func writeUTF8(_ file: URL, _ s: String) -> Bool {
+  do {
+    try s.write(to: file, atomically: true, encoding: .utf8)
+    return true
+  } catch {
+    FCITX_ERROR("Error writing \(file.localPath()): \(error.localizedDescription)")
+    return false
+  }
+}
+
+public func decodeJSON<T: Decodable>(_ s: String, _ defaultValue: T) -> T {
+  guard let data = s.data(using: .utf8),
+    let decoded = try? JSONDecoder().decode(T.self, from: data)
+  else {
+    return defaultValue
+  }
+  return decoded
+}
+
+func encodeJSON<T: Encodable>(_ value: T) -> String? {
+  guard let data = try? JSONEncoder().encode(value),
+    let s = String(data: data, encoding: .utf8)
+  else {
+    return nil
+  }
+  return s
+}
+
+func readJSON(_ file: URL) -> Any? {
+  guard let content = readUTF8(file),
+    let data = content.data(using: .utf8),
+    let deserialized = try? JSONSerialization.jsonObject(with: data, options: [])
+  else {
+    return nil
+  }
+  return deserialized
+}
+
+func openInEditor(url: URL) {
+  let apps = ["VSCodium", "Visual Studio Code"]
+  for app in apps {
+    let appURL = URL(fileURLWithPath: "/Applications/\(app).app")
+    if appURL.exists() {
+      NSWorkspace.shared.open(
+        [url], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration(),
+        completionHandler: nil)
+      return
+    }
+  }
+  if let textEditURL = NSWorkspace.shared.urlForApplication(
+    withBundleIdentifier: "com.apple.TextEdit")
+  {
+    NSWorkspace.shared.open(
+      [url], withApplicationAt: textEditURL, configuration: NSWorkspace.OpenConfiguration(),
+      completionHandler: nil)
+  }
+}
+
+func exec(_ command: String, _ args: [String]) -> Bool {
+  let process = Process()
+  process.launchPath = command
+  process.arguments = args
+
+  do {
+    try process.run()
+    process.waitUntilExit()
+    return process.terminationStatus == 0
+  } catch {
+    FCITX_ERROR("Fatal error executing \(command) \(args)")
+    return false
+  }
+}
+
+func getNoCacheSession() -> URLSession {
+  // URLSession.shared caches even after process restarted.
+  let config = URLSessionConfiguration.default
+  config.requestCachePolicy = .reloadIgnoringLocalCacheData
+  return URLSession(configuration: config)
+}
+
+func bundleIdentifier(_ appPath: String) -> String {
+  guard let bundle = Bundle(path: appPath) else {
+    return ""
+  }
+  return bundle.bundleIdentifier ?? ""
+}
+
+func appPathFromBundleIdentifier(_ bundleID: String) -> String {
+  // Must check empty, otherwise it uses the last opened app that has no bundleID.
+  if bundleID.isEmpty {
+    return ""
+  }
+  if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+    return url.localPath()
+  }
+  return ""
+}
+
+func appNameFromPath(_ path: String) -> String {
+  let name = URL(filePath: path).lastPathComponent
+  return name.hasSuffix(".app") ? name.deletingPathExtension : ""
+}

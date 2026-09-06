@@ -1,0 +1,36 @@
+# Korean translations for fcitx5-beast package.
+# Copyright (C) 2026 fcitx5-beast's contributors
+# This file is distributed under the same license as the fcitx5-beast package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: fcitx5-beast\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-19 00:22-0400\n"
+"PO-Revision-Date: 2026-07-19 12:00+0900\n"
+"Last-Translator: opencode <opencode@opencode.ai>\n"
+"Language-Team: Korean\n"
+"Language: ko\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: src/beast.h:30
+msgid "Port"
+msgstr "포트"
+
+#: src/beast.h:34
+msgid "Path"
+msgstr "경로"
+
+#: src/beast.h:46
+msgid "Communication"
+msgstr "통신"
+
+#: src/beast.conf.in.in:2
+msgid "Web server"
+msgstr "웹 서버"
+
+#: src/beast.conf.in.in:3
+msgid "Interact with fcitx5 via HTTP, powered by Boost.Beast"
+msgstr "HTTP를 통해 fcitx5와 상호작용, Boost.Beast 기반"

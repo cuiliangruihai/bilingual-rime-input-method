@@ -1,0 +1,15 @@
+[submodule "fcitx5"]
+	path = fcitx5
+	url = https://github.com/fcitx/fcitx5
+[submodule "fcitx5-webview"]
+	path = fcitx5-webview
+	url = https://github.com/fcitx-contrib/fcitx5-webview
+[submodule "fcitx5-beast"]
+	path = fcitx5-beast
+	url = https://github.com/fcitx-contrib/fcitx5-beast
+[submodule "deps/AlertToast"]
+	path = deps/AlertToast
+	url = https://github.com/fcitx-contrib/AlertToast
+[submodule "deps/url-filter"]
+	path = deps/url-filter
+	url = https://github.com/fcitx-contrib/url-filter

@@ -1,0 +1,17 @@
+.DS_Store
+build
+*.dmg
+*.tar.bz2
+.cache
+
+# Auto-generated data
+assets/en.lproj/Localizable.strings
+*.pot
+meta.swift
+*~
+version.json
+*.pyc
+*.dict
+*.scel
+*.zip
+appium/plugin/share

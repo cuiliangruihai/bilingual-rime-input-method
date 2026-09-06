@@ -1,0 +1,352 @@
+// Reference-style bilingual candidate panel.
+// The layout is intentionally wide: it is a three-card reading surface, not
+// the compact one-line candidate strip used by the stock macOS theme.
+.fcitx-macos {
+  // The reference is intentionally light even when macOS itself is in dark
+  // appearance.  The stock macOS-26 rules have higher specificity, so these
+  // values are marked important where the native theme would otherwise paint
+  // the panel charcoal.
+  &.fcitx-dark,
+  &.fcitx-light {
+    color-scheme: light;
+
+    .fcitx-panel,
+    .fcitx-header {
+      background: #f8fafd !important;
+      color: #151c28 !important;
+    }
+
+    .fcitx-candidate-background,
+    .fcitx-hoverables,
+    .fcitx-paging {
+      background: #fff !important;
+    }
+
+    .fcitx-text {
+      color: #111722 !important;
+    }
+
+    .fcitx-label {
+      color: #718096 !important;
+    }
+
+    .fcitx-comment {
+      color: #5c6a7d !important;
+    }
+
+    .fcitx-pre-caret,
+    .fcitx-caret,
+    .fcitx-post-caret {
+      color: #151c28 !important;
+    }
+
+    .fcitx-caret.fcitx-no-text {
+      background: #1479ff !important;
+    }
+
+    .fcitx-paging .fcitx-hoverable-inner {
+      color: #64748b !important;
+    }
+
+    .fcitx-paging svg {
+      color: #64748b !important;
+    }
+
+    .fcitx-divider-middle {
+      background-color: #e9edf2 !important;
+    }
+  }
+
+  .fcitx-decoration {
+    transform: translate(32px, 32px);
+  }
+
+  .fcitx-panel {
+    inline-size: min(1435px, calc(100vw - 13px));
+    min-inline-size: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+    border: 2px solid rgb(215 220 227 / 96%);
+    border-radius: 28px;
+    background: rgb(248 250 253 / 98%);
+    box-shadow: 0 24px 52px rgb(43 56 72 / 16%),
+      0 4px 12px rgb(43 56 72 / 10%);
+  }
+
+  .fcitx-panel-blur {
+    background: transparent;
+  }
+
+  .fcitx-header {
+    box-sizing: border-box;
+    padding: 96px 68px 22px;
+    background: transparent;
+  }
+
+  .fcitx-preedit {
+    box-sizing: border-box;
+    inline-size: 100%;
+    min-inline-size: 0;
+    min-block-size: 140px;
+    margin: 0;
+    padding: 22px 40px;
+    border: 2px solid rgb(215 220 227 / 96%);
+    border-radius: 22px;
+    background: #fff;
+    color: #151c28;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    font-size: 56px;
+    font-weight: 400;
+    line-height: 1.18;
+  }
+
+  .fcitx-hoverables {
+    box-sizing: border-box;
+    inline-size: auto;
+    // The stock macOS webpanel applies an inline max-block-size while it is
+    // waiting for scroll-mode candidates.  This design is a fixed bilingual
+    // row, so that temporary clamp would hide both text rows in the native
+    // WKWebView even though the DOM contains them.
+    max-block-size: none !important;
+    margin: 0 94px 26px;
+    overflow: hidden;
+    border: 2px solid rgb(215 220 227 / 96%);
+    border-radius: 28px;
+    background: #fff;
+
+    &.fcitx-horizontal {
+      .fcitx-scroll-area {
+        align-items: stretch;
+        min-inline-size: 0;
+      }
+
+      .fcitx-candidate {
+        flex: 1 1 0;
+        min-inline-size: 0;
+        display: flex;
+      }
+
+      // The first card is deliberately a little wider, matching the visual
+      // rhythm of the reference rather than forcing three equal columns.
+      .fcitx-candidate:nth-child(1) {
+        flex-grow: 1.1;
+      }
+
+      .fcitx-candidate:nth-child(3) {
+        flex-grow: 1.04;
+      }
+
+      .fcitx-candidate:nth-child(5) {
+        flex-grow: 0.93;
+      }
+
+      .fcitx-candidate-inner {
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr);
+        grid-template-rows: auto auto;
+        align-content: center;
+        align-items: start;
+        box-sizing: border-box;
+        inline-size: 100%;
+        min-block-size: 190px;
+        margin: 20px;
+        padding: 22px 26px;
+        border-radius: 18px;
+        gap: 8px 34px;
+      }
+
+      .fcitx-label {
+        grid-column: 1;
+        grid-row: 1;
+        inline-size: auto;
+        padding-top: 4px;
+        color: #718096;
+        text-align: center;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+        font-size: 32px;
+        font-weight: 400;
+        line-height: 44px;
+      }
+
+      .fcitx-text {
+        grid-column: 2;
+        grid-row: 1;
+        min-inline-size: 0;
+        overflow: visible;
+        color: #111722;
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+        font-size: 56px;
+        font-weight: 600;
+        line-height: 1.08;
+        overflow-wrap: anywhere;
+        white-space: normal;
+      }
+
+      .fcitx-comment {
+        grid-column: 2;
+        grid-row: 2;
+        min-block-size: 40px;
+        overflow: visible;
+        color: #5c6a7d;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+        font-size: 34px;
+        font-weight: 400;
+        line-height: 40px;
+        overflow-wrap: anywhere;
+        white-space: normal;
+      }
+
+      .fcitx-divider {
+        flex: 0 0 1px;
+        inline-size: 1px;
+        block-size: auto;
+        margin-block: 38px;
+      }
+
+      .fcitx-divider-side {
+        display: none;
+      }
+
+      .fcitx-divider-middle {
+        block-size: 100%;
+        background-color: #e9edf2;
+      }
+
+      .fcitx-divider-paging {
+        margin-block: 38px;
+      }
+
+      .fcitx-paging {
+        flex: 0 0 92px;
+        min-inline-size: 92px;
+        box-sizing: border-box;
+        padding: 0;
+        border-inline-start: 1px solid #e9edf2;
+        background: #fff;
+      }
+
+      .fcitx-paging.fcitx-arrow {
+        flex-direction: row;
+        align-items: stretch;
+        justify-content: stretch;
+      }
+
+      .fcitx-paging .fcitx-prev,
+      .fcitx-paging .fcitx-next {
+        display: flex;
+        flex: 1 1 0;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+      }
+
+      // Disabled paging controls are omitted, leaving the single right arrow
+      // shown in the reference image on the first page.
+      .fcitx-paging .fcitx-prev:not(:has(.fcitx-hoverable-inner)),
+      .fcitx-paging .fcitx-next:not(:has(.fcitx-hoverable-inner)) {
+        display: none;
+      }
+
+      .fcitx-paging-inner {
+        display: grid;
+        place-items: center;
+        inline-size: 100%;
+        block-size: 100%;
+        margin: 0;
+        border-radius: 0;
+      }
+
+      .fcitx-paging-inner svg {
+        inline-size: 40px;
+        block-size: 40px;
+      }
+
+      // macOS rotates the generic horizontal paging arrows for the compact
+      // theme. The reference uses a normal right/left chevron here.
+      .fcitx-paging.fcitx-arrow .fcitx-prev svg,
+      .fcitx-paging.fcitx-arrow .fcitx-next svg {
+        transform: none !important;
+      }
+    }
+  }
+
+  .fcitx-highlighted .fcitx-hoverable-inner {
+    background-color: #dceeff !important;
+  }
+
+  .fcitx-highlighted .fcitx-text {
+    color: #111722 !important;
+  }
+
+  .fcitx-highlighted .fcitx-label {
+    color: #5e87b8 !important;
+  }
+
+  .fcitx-highlighted .fcitx-comment {
+    color: #536b8b !important;
+  }
+
+  .fcitx-preedit .fcitx-caret.fcitx-no-text {
+    inline-size: 3px;
+    block-size: 68px;
+    margin-inline: 2px;
+    border-radius: 2px;
+    background: #1479ff;
+  }
+}
+
+@media (max-width: 900px) {
+  .fcitx-macos {
+    .fcitx-panel {
+      inline-size: calc(100vw - 24px);
+      border-radius: 22px;
+    }
+
+    .fcitx-header {
+      padding: 28px 32px 16px;
+    }
+
+    .fcitx-preedit {
+      min-block-size: 88px;
+      padding: 14px 24px;
+      border-radius: 16px;
+      font-size: 36px;
+    }
+
+    .fcitx-hoverables {
+      margin-inline: 44px;
+      border-radius: 20px;
+
+      &.fcitx-horizontal {
+        .fcitx-candidate-inner {
+          min-block-size: 126px;
+          margin-block: 12px;
+          padding: 14px 16px;
+          gap: 5px 8px;
+        }
+
+        .fcitx-label {
+          inline-size: auto;
+          font-size: 22px;
+          line-height: 30px;
+        }
+
+        .fcitx-text {
+          font-size: 34px;
+          line-height: 38px;
+        }
+
+        .fcitx-comment {
+          min-block-size: 26px;
+          font-size: 20px;
+          line-height: 26px;
+        }
+
+        .fcitx-paging {
+          flex-basis: 58px;
+          min-inline-size: 58px;
+        }
+      }
+    }
+  }
+}

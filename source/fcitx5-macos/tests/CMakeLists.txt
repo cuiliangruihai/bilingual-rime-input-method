@@ -1,0 +1,57 @@
+# Config and Option
+add_executable(config-cpp testconfig.cpp)
+target_link_libraries(config-cpp Fcitx5Objs SwiftFrontend)
+fcitx5_import_addons(config-cpp
+    REGISTRY_VARNAME getStaticAddon
+    ADDONS keyboard
+)
+add_test(NAME config-cpp COMMAND config-cpp)
+
+add_executable(icon-cpp testicon.cpp)
+target_link_libraries(icon-cpp Fcitx5Objs SwiftFrontend)
+add_test(NAME icon-cpp COMMAND icon-cpp)
+
+# CustomPhrase .plist parser
+add_executable(XmlParser testxmlparser.swift
+    ${PROJECT_SOURCE_DIR}/src/config/xmlparser.swift
+)
+add_test(NAME XmlParser COMMAND XmlParser "${PROJECT_SOURCE_DIR}/tests/customphrase.plist")
+
+add_executable(key-cpp testkey.cpp)
+target_link_libraries(key-cpp Keycode)
+add_test(NAME key-cpp COMMAND key-cpp)
+
+add_executable(layout-cpp testlayout.cpp)
+target_link_libraries(layout-cpp Fcitx5Objs)
+add_test(NAME layout-cpp COMMAND layout-cpp)
+
+add_executable(KeySwift testkey.swift
+    ${PROJECT_SOURCE_DIR}/src/config/keycode.swift
+    ${PROJECT_SOURCE_DIR}/src/config/keyrecorder.swift
+)
+target_compile_options(KeySwift PRIVATE "-cxx-interoperability-mode=default")
+target_link_libraries(KeySwift Keycode)
+add_test(NAME KeySwift COMMAND KeySwift)
+
+add_executable(KeyEventSwift testevent.swift
+    ${PROJECT_SOURCE_DIR}/src/config/keycode.swift
+    ${PROJECT_SOURCE_DIR}/src/config/keyrecorder.swift
+)
+target_compile_options(KeyEventSwift PRIVATE "-cxx-interoperability-mode=default")
+target_link_libraries(KeyEventSwift Keycode)
+add_test(NAME KeyEventSwift COMMAND KeyEventSwift)
+
+add_executable(TagSwift testtag.swift
+    ${PROJECT_SOURCE_DIR}/src/config/tag.swift
+)
+add_test(NAME TagSwift COMMAND TagSwift)
+
+add_executable(ColorSwift testcolor.swift
+    ${PROJECT_SOURCE_DIR}/src/config/color.swift
+)
+add_test(NAME ColorSwift COMMAND ColorSwift)
+
+add_executable(StatusSwift teststatus.swift
+    ${PROJECT_SOURCE_DIR}/src/status.swift
+)
+add_test(NAME StatusSwift COMMAND StatusSwift)
