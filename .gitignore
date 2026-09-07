@@ -24,3 +24,4 @@ __pycache__/
 # Local agent/editor metadata copied from the upstream working tree.
 source/fcitx5-macos/.opencode/
 source/fcitx5-macos/opencode.jsonc
+source/fcitx5-rime/.github/

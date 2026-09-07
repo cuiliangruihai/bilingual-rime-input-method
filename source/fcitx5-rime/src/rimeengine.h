@@ -6,6 +6,7 @@
 #ifndef _FCITX_RIMEENGINE_H_
 #define _FCITX_RIMEENGINE_H_
 
+#include "learninglog.h"
 #include "rimesession.h"
 #include "rimestate.h"
 #include "translation.h"
@@ -118,6 +119,9 @@ FCITX_CONFIGURATION(
         {fcitx::Key("Control+Shift+E")}};
     Option<bool> showEnglish{this, "ShowEnglish", _("Show English translations"),
                               true};
+    Option<bool> learningLogEnabled{
+        this, "LearningLogEnabled", _("Record Chinese for English learning"),
+        true};
 );
 
 class RimeEngine final : public InputMethodEngineV2 {
@@ -155,10 +159,12 @@ public:
     const RimeEngineConfig &config() const { return config_; }
     bool showEnglish() const { return *config_.showEnglish; }
     void toggleShowEnglish(InputContext *inputContext);
+    bool learningLogEnabled() const { return *config_.learningLogEnabled; }
 
     rime_api_t *api() { return api_; }
     const auto &appOptions() const { return appOptions_; }
     EventDispatcher &eventDispatcher() { return eventDispatcher_; }
+    DailyLearningLog &learningLog() { return learningLog_; }
     TranslationCache &translations() { return translationCache_; }
 
     void rimeStart(bool fullcheck);
@@ -201,6 +207,7 @@ private:
     Instance *instance_;
     EventDispatcher eventDispatcher_;
     rime_api_t *api_;
+    DailyLearningLog learningLog_;
     TranslationCache translationCache_;
     static bool firstRun_;
     uint64_t silenceNotificationUntil_ = 0;

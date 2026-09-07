@@ -5,6 +5,7 @@ set(RIME_SOURCES
     rimesession.cpp
     rimeaction.cpp
     rimefactory.cpp
+    learninglog.cpp
     translation.cpp
 )
 

@@ -63,6 +63,8 @@ public:
 private:
     void maybeSyncProgramNameToSession();
     std::vector<std::string> snapshotOptions(const std::string &schema);
+    void recordChinese(std::string_view text);
+    void commitAndRecord(InputContext *inputContext, std::string_view text);
     void commitSelected(InputContext *inputContext, std::string_view chinese,
                         std::string_view translation, bool english);
 

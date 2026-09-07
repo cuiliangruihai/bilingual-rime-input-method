@@ -149,6 +149,18 @@ void RimeState::setLatinMode(bool latin) {
     api->set_option(session(), RIME_ASCII_MODE, latin);
 }
 
+void RimeState::recordChinese(std::string_view text) {
+    if (engine_->learningLogEnabled()) {
+        engine_->learningLog().append(text);
+    }
+}
+
+void RimeState::commitAndRecord(InputContext *inputContext,
+                                std::string_view text) {
+    recordChinese(text);
+    inputContext->commitString(std::string(text));
+}
+
 void RimeState::selectSchema(const std::string &schema) {
     auto *api = engine_->api();
     if (api->is_maintenance_mode()) {
@@ -161,6 +173,10 @@ void RimeState::selectSchema(const std::string &schema) {
 void RimeState::commitSelected(InputContext *inputContext,
                                std::string_view chinese,
                                std::string_view translation, bool english) {
+    // Record the original Chinese even when the user chooses to output its
+    // English translation.  The learning pipeline will later decide how to
+    // group and analyze the day's text.
+    recordChinese(chinese);
     if (!english) {
         inputContext->commitString(std::string(chinese));
         return;
@@ -360,7 +376,7 @@ void RimeState::keyEvent(KeyEvent &event) {
         }
         if (!result) {
             commitPreedit(ic);
-            ic->commitString(composeResult);
+            commitAndRecord(ic, composeResult);
             clear();
         }
     } else {
@@ -603,7 +619,7 @@ void RimeState::commitInput(InputContext *ic) {
     if (auto *api = engine_->api()) {
         if (const char *input = api->get_input(this->session())) {
             if (std::strlen(input) > 0) {
-                ic->commitString(input);
+                commitAndRecord(ic, input);
             }
         }
     }
@@ -617,7 +633,7 @@ void RimeState::commitComposing(InputContext *ic) {
             return;
         }
         if (context.composition.length > 0) {
-            ic->commitString(context.composition.preedit);
+            commitAndRecord(ic, context.composition.preedit);
         }
         api->free_context(&context);
     }
@@ -631,7 +647,7 @@ void RimeState::commitPreedit(InputContext *ic) {
             return;
         }
         if (context.composition.length > 0 && context.commit_text_preview) {
-            ic->commitString(context.commit_text_preview);
+            commitAndRecord(ic, context.commit_text_preview);
         }
         api->free_context(&context);
     }

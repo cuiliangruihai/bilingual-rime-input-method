@@ -27,6 +27,7 @@
 - 支持 `Option+1` 到 `Option+5` 直接提交对应英文候选。
 - 支持 `Ctrl+Shift+E` 永久切换英文释义显示。
 - 翻译在后台线程执行，并使用缓存，避免阻塞正常输入。
+- 可按天记录已提交的中文输入，作为后续英语学习的原始语料。
 - 优先复用 Rime 候选注释中的本地词典释义；短语和句子可使用 macOS Translation Framework。
 - 保留可选的在线 HTTP 翻译接口，但默认不联网、不要求账号或 API Key。
 
@@ -60,6 +61,33 @@ export RIME_ONLINE_TRANSLATION_TOKEN="your-token"
 ```
 
 服务端返回 JSON 时支持 `translation`、`translatedText`，或 `data.translation` 字段。不要把 token 写进源码、配置文件或 Git 提交。
+
+## 每日中文学习记录
+
+输入法不负责猜测停顿、识别句子边界或调用大模型。它只在中文内容真正提交后，异步追加到本地每天一个的 JSON 文件中：
+
+```text
+<Fcitx5 用户数据目录>/rime/learning/2026-09-07.json
+```
+
+文件格式：
+
+```json
+{
+  "date": "2026-09-07",
+  "text": "你好\n我今天想吃苹果\n这个方案还需要继续优化"
+}
+```
+
+`text` 保存当天所有已提交中文；每次提交之间用换行区分，但这个换行不是句子识别结果。后续 Web 学习项目可以自行组合语料，再使用大模型完成分句、整句翻译以及单词和短语抽取。
+
+记录默认开启，可在 Fcitx5 的 Rime 配置中关闭：
+
+```ini
+LearningLogEnabled=False
+```
+
+记录器运行在后台线程，文件采用临时文件写入后原子替换，并设置为仅当前用户可读写，避免记录过程影响输入或留下半个 JSON 文件。
 
 ## 构建
 
@@ -109,6 +137,7 @@ cmake --build build/arm64
 - 默认翻译 provider 是 macOS 本地 Translation Framework。
 - 默认不会调用在线翻译服务。
 - 翻译结果只用于当前输入法的候选显示和本地缓存。
+- 每日中文学习记录只保存在本机，默认不上传到任何服务。
 - 本仓库不包含个人 Rime 用户词库、系统输入法配置、访问令牌、安装后的 App、构建目录或依赖缓存。
 
 ## 项目状态
@@ -131,4 +160,3 @@ cmake --build build/arm64
 本项目基于 Fcitx5、Rime 及其 macOS/WebView 组件。构建所需的上游源码以源码快照形式保存在仓库中，原始许可证和版权信息保留在对应目录。详细来源见 [docs/upstream-sources.md](docs/upstream-sources.md)。
 
 请在分发二进制版本前逐项检查上游许可证、系统框架要求和代码签名要求。
-
